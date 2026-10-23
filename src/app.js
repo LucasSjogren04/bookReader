@@ -743,7 +743,8 @@ navigator.storage?.persist?.().catch(() => {})
 
 // Web-app version: offline support/installation, and books opened with "Open with → Shelf".
 if (location.protocol !== 'chrome-extension:') {
-    if ('serviceWorker' in navigator && window.isSecureContext)
+    // Not on localhost, so local edits show up on reload during development.
+    if ('serviceWorker' in navigator && window.isSecureContext && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname))
         navigator.serviceWorker.register('sw.js').catch(e => console.warn('Service worker not registered', e))
     window.launchQueue?.setConsumer(async ({ files }) => {
         if (!files?.length) return

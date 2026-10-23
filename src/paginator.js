@@ -66,7 +66,7 @@ ${t.dark ? `img, svg, video { filter: brightness(.88) contrast(1.05); }
 img[data-br-imgbg] { background-color: #fff !important; }` : ''}`
 }
 
-const layoutCSS = (d, s, book) => {
+const layoutCSS = (d, s, textDir) => {
     const font = fontStack(s)
     const pageH = d.H - 2 * d.mV
     const lh = Number(s.lineHeight)
@@ -86,8 +86,12 @@ body {
     height: auto !important; min-height: 0 !important; max-height: none !important;
     width: auto !important; max-width: none !important; overflow: visible !important;
     position: static !important; float: none !important; column-count: auto !important; columns: auto !important;
-    ${book.dir === 'rtl' ? 'direction: rtl;' : ''}
+    /* Browsers carry the <body>'s direction and writing mode up to the page itself, which would
+       make the columns run right-to-left (or top-to-bottom) off screen, so pages always flow
+       left to right. Right-to-left text keeps its direction one level down. */
+    direction: ltr !important; writing-mode: horizontal-tb !important;
 }
+${textDir === 'rtl' ? 'body > * { direction: rtl; }' : ''}
 img, video, canvas, object { max-width: 100% !important; max-height: ${pageH}px !important; object-fit: contain; box-sizing: border-box; }
 svg { max-width: 100% !important; max-height: ${pageH}px !important; }
 img, svg, video { break-inside: avoid; }
@@ -186,6 +190,25 @@ const waitForImages = async doc => {
     ])
 }
 
+// Fonts named "@…" (e.g. "@MS Mincho") are Windows' rotated variants for vertical text. Pages
+// are always laid out horizontally, where they space and rotate characters oddly, so use the
+// same font without the "@" (the normal, horizontal MS Mincho/Gothic) instead.
+const stripVerticalFonts = doc => {
+    const fix = family => family.replace(/(^|,)(\s*["']?)@/g, '$1$2')
+    const walk = rules => {
+        for (const rule of rules) {
+            if (rule.style?.fontFamily?.includes('@')) rule.style.fontFamily = fix(rule.style.fontFamily)
+            if (rule.cssRules) walk(rule.cssRules)
+        }
+    }
+    for (const sheet of doc.styleSheets) {
+        try { walk(sheet.cssRules) } catch {}
+    }
+    for (const el of doc.querySelectorAll('[style*="@"]')) {
+        if (el.style.fontFamily.includes('@')) el.style.fontFamily = fix(el.style.fontFamily)
+    }
+}
+
 /**
  * Lays out a reflowable document for the given dimensions; returns the number of pages
  * (columns) and views (screens).
@@ -195,13 +218,18 @@ export const layoutFlow = async (doc, d, s, book) => {
     if (!doc.body) return { pages: 1, views: 1 }
     let style = doc.getElementById('br-style')
     if (!style) {
+        // The text direction the book itself asks for (Arabic, Hebrew…), read before our
+        // styles override it. A right-to-left *page order* (common in Japanese books) is not
+        // a reason to make the text right-to-left.
+        doc.brTextDir = doc.defaultView.getComputedStyle(doc.body).direction
+        stripVerticalFonts(doc)
         style = doc.createElementNS('http://www.w3.org/1999/xhtml', 'style')
         style.id = 'br-style'
             ; (doc.head ?? html).append(style)
     }
     // Our style must come last to win over the book's own stylesheets.
     if (style.nextElementSibling) style.parentNode.append(style)
-    style.textContent = layoutCSS(d, s, book)
+    style.textContent = layoutCSS(d, s, doc.brTextDir)
     let end = doc.getElementById('br-end')
     if (!end) {
         end = doc.createElementNS('http://www.w3.org/1999/xhtml', 'div')

@@ -2,7 +2,7 @@
 // Same-origin files are served from the cache and refreshed in the background
 // (stale-while-revalidate), so a new deploy is picked up on the next visit.
 
-const CACHE = 'shelf-v1'
+const CACHE = 'shelf-v2'
 const SHELL = [
     './', 'reader.html', 'app.webmanifest',
     'src/style.css', 'src/app.js', 'src/db.js', 'src/settings.js', 'src/formats.js',
