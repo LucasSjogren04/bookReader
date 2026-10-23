@@ -1,0 +1,27 @@
+{
+  "name": "Shelf — Book Reader",
+  "short_name": "Shelf",
+  "description": "Read EPUB, AZW3, MOBI, PDF, FB2, CBZ and more from a local library, with smart real-time pagination.",
+  "start_url": "reader.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f5f2",
+  "theme_color": "#3b5bdb",
+  "icons": [
+    { "src": "icons/icon192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ],
+  "file_handlers": [
+    {
+      "action": "reader.html",
+      "accept": {
+        "application/epub+zip": [".epub", ".kepub"],
+        "application/pdf": [".pdf"],
+        "application/x-mobipocket-ebook": [".mobi", ".azw", ".azw3", ".prc"],
+        "application/x-fictionbook+xml": [".fb2"],
+        "application/x-zip-compressed-fb2": [".fbz"],
+        "application/vnd.comicbook+zip": [".cbz"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Only the app's own scripts may run. Book pages inherit this policy, so scripts inside books never run. -->
+<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'self'">
+<title>Shelf</title>
+<link rel="icon" href="icons/icon32.png">
+<link rel="manifest" href="app.webmanifest">
+<meta name="theme-color" content="#3b5bdb">
+<link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-toc" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-font" viewBox="0 0 24 24"><path d="M3 19l5-14 5 14M5 14h6M15 19l3.5-9 3.5 9M16.2 16h4.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-full" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 6.5C10 5 7 4.5 3.5 5v13c3.5-.5 6.5 0 8.5 1.5 2-1.5 5-2 8.5-1.5V5C17 4.5 14 5 12 6.5zM12 6.5v13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+</svg>
+
+<!-- Library -->
+<div id="library-view" class="view">
+  <header class="lib-header">
+    <div class="brand"><svg><use href="#i-book"/></svg><span>Shelf</span></div>
+    <input id="search" type="search" placeholder="Search title or author" autocomplete="off">
+    <select id="sort" title="Sort">
+      <option value="opened">Recently read</option>
+      <option value="added">Recently added</option>
+      <option value="title">Title</option>
+      <option value="author">Author</option>
+    </select>
+    <button id="lib-theme" class="icon-btn" title="Toggle dark mode"><svg><use href="#i-moon"/></svg></button>
+    <label class="btn primary" title="Add books">
+      <svg><use href="#i-plus"/></svg><span>Add books</span>
+      <input id="file-input" type="file" multiple hidden
+        accept=".epub,.kepub,.mobi,.azw,.azw3,.kf8,.prc,.pdb,.pdf,.fb2,.fbz,.zip,.cbz,.txt,.text,.html,.htm,.xhtml,.md,.markdown">
+    </label>
+  </header>
+  <main class="library">
+    <div id="empty-state" class="empty-state" hidden>
+      <div class="drop-target">
+        <svg><use href="#i-book"/></svg>
+        <h2>Drop books here</h2>
+        <p>EPUB, AZW3, MOBI, AZW, PRC, PDF, FB2, FBZ, CBZ, TXT, HTML and Markdown.<br>
+          Everything stays in this browser.</p>
+      </div>
+    </div>
+    <div id="grid" class="grid"></div>
+  </main>
+</div>
+
+<!-- Reader -->
+<div id="reader-view" class="view" hidden>
+  <header class="rbar top">
+    <button id="btn-library" class="icon-btn" title="Library (Esc)"><svg><use href="#i-back"/></svg></button>
+    <button id="btn-toc" class="icon-btn" title="Contents (T)"><svg><use href="#i-toc"/></svg></button>
+    <div class="rtitle"><span id="book-title"></span><span id="chapter-title"></span></div>
+    <button id="btn-settings" class="icon-btn" title="Appearance (A)"><svg><use href="#i-font"/></svg></button>
+    <button id="btn-full" class="icon-btn" title="Full screen (F)"><svg><use href="#i-full"/></svg></button>
+  </header>
+  <div id="stage" class="stage">
+    <div id="loading" class="loading" hidden><div class="spinner"></div><span id="loading-text"></span></div>
+  </div>
+  <footer class="rbar bottom">
+    <button id="btn-prev" class="icon-btn" title="Previous page"><svg><use href="#i-back"/></svg></button>
+    <input id="progress" type="range" min="0" max="1000" value="0">
+    <span id="page-label" class="page-label"></span>
+    <button id="btn-next" class="icon-btn" title="Next page"><svg><use href="#i-next"/></svg></button>
+  </footer>
+
+  <aside id="toc-panel" class="drawer left" hidden>
+    <div class="drawer-head"><h3>Contents</h3><button class="icon-btn" data-close><svg><use href="#i-close"/></svg></button></div>
+    <nav id="toc"></nav>
+  </aside>
+
+  <aside id="settings-panel" class="drawer right" hidden>
+    <div class="drawer-head"><h3>Appearance</h3><button class="icon-btn" data-close><svg><use href="#i-close"/></svg></button></div>
+    <div class="settings">
+      <div class="field">
+        <label>Theme</label>
+        <div class="seg" data-setting="theme">
+          <button data-value="light" class="sw sw-light">Light</button>
+          <button data-value="sepia" class="sw sw-sepia">Sepia</button>
+          <button data-value="dark" class="sw sw-dark">Dark</button>
+          <button data-value="black" class="sw sw-black">Black</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="s-font">Font</label>
+        <select id="s-font" data-setting="fontFamily">
+          <option value="original">Book's original</option>
+          <option value="serif">Serif</option>
+          <option value="sans">Sans-serif</option>
+          <option value="mono">Monospace</option>
+          <option value="custom">Other font…</option>
+        </select>
+        <div class="row" id="custom-font-row" hidden>
+          <input id="s-custom-font" list="font-list" placeholder="Font name, e.g. Garamond" data-setting="customFont">
+          <button id="btn-local-fonts" class="btn small" title="List fonts installed on this computer">Installed</button>
+        </div>
+        <datalist id="font-list">
+          <option>Georgia</option><option>Palatino Linotype</option><option>Book Antiqua</option>
+          <option>Garamond</option><option>Cambria</option><option>Constantia</option>
+          <option>Times New Roman</option><option>Charter</option><option>Iowan Old Style</option>
+          <option>Segoe UI</option><option>Arial</option><option>Verdana</option><option>Calibri</option>
+          <option>Helvetica</option><option>Open Sans</option><option>Atkinson Hyperlegible</option>
+          <option>OpenDyslexic</option><option>Consolas</option>
+        </datalist>
+      </div>
+      <div class="field">
+        <label for="s-size">Text size</label>
+        <div class="size-picker">
+          <button id="btn-size-down" class="btn small" title="Decrease text size">−</button>
+          <select id="s-size" data-setting="textSize" title="Text size (points)">
+            <option value="original">Original</option>
+            <option>8</option><option>9</option><option>10</option><option>11</option><option>12</option>
+            <option>14</option><option>18</option><option>24</option><option>30</option><option>36</option>
+            <option>48</option><option>60</option><option>72</option><option>96</option>
+          </select>
+          <button id="btn-size-up" class="btn small" title="Increase text size">+</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="s-zoom">Zoom <output data-for="zoom"></output></label>
+        <input id="s-zoom" type="range" min="50" max="250" step="5" data-setting="zoom">
+      </div>
+      <div class="field">
+        <label for="s-lh">Line spacing <output data-for="lineHeight"></output></label>
+        <input id="s-lh" type="range" min="0" max="2.4" step="0.1" data-setting="lineHeight">
+      </div>
+      <div class="field">
+        <label>Alignment</label>
+        <div class="seg" data-setting="align">
+          <button data-value="original">Original</button>
+          <button data-value="justify">Justify</button>
+          <button data-value="left">Left</button>
+        </div>
+      </div>
+      <div class="field two">
+        <div>
+          <label for="s-mh">Side margins <output data-for="marginSide"></output></label>
+          <input id="s-mh" type="range" min="0" max="40" step="1" data-setting="marginSide">
+        </div>
+        <div>
+          <label for="s-mv">Top/bottom <output data-for="marginV"></output></label>
+          <input id="s-mv" type="range" min="0" max="120" step="4" data-setting="marginV">
+        </div>
+      </div>
+      <div class="field">
+        <label>Pages per screen</label>
+        <div class="seg" data-setting="spread">
+          <button data-value="auto">Auto</button>
+          <button data-value="single">One</button>
+          <button data-value="double">Two</button>
+        </div>
+      </div>
+      <div class="field" data-only="pdf">
+        <label>PDF layout</label>
+        <div class="seg" data-setting="pdfMode">
+          <button data-value="smart" title="Reflow plain text, keep original pages for figures, tables, maths and footnotes">Smart</button>
+          <button data-value="original">Original pages</button>
+          <button data-value="reflow">Reflow all</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Original pages in dark themes</label>
+        <div class="seg" data-setting="invertFixed">
+          <button data-value="auto" title="Invert text-only pages, leave photos alone">Auto</button>
+          <button data-value="always">Invert</button>
+          <button data-value="never">Keep</button>
+        </div>
+      </div>
+      <div class="field checks">
+        <label><input type="checkbox" data-setting="hyphenate"> Hyphenation</label>
+        <label><input type="checkbox" data-setting="animate"> Page turn animation</label>
+      </div>
+      <button id="btn-reset" class="btn small ghost">Reset to defaults</button>
+    </div>
+  </aside>
+
+  <div id="note-popup" class="note-popup" hidden>
+    <div class="note-body"></div>
+  </div>
+</div>
+
+<div id="drop-overlay" class="drop-overlay" hidden><div>Drop to add to your library</div></div>
+<div id="toasts" class="toasts"></div>
+
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
