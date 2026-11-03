@@ -1,6 +1,6 @@
 import * as db from './db.js'
 import { openBook, makeThumbnail, bookTitle, bookAuthor, UnsupportedError } from './formats.js'
-import { Paginator } from './paginator.js'
+import { Paginator, tightenPunctuation } from './paginator.js'
 import { settings, setSetting, onSettingChange, resetSettings, MARGIN_SIZES } from './settings.js'
 
 const $ = sel => document.querySelector(sel)
@@ -381,11 +381,15 @@ els.progress.addEventListener('change', async () => {
 
 let loadingTimer
 const bindPaginator = paginator => {
+    let shownPage = null
     paginator.addEventListener('relocate', e => {
         updateProgressUI(e.detail)
         updateCurrentChapter()
         saveProgress()
-        hideNote()
+        // This also fires as background page counting progresses, so check the page really changed.
+        const page = `${paginator.display?.index}:${paginator.view}`
+        if (page !== shownPage) hideNote()
+        shownPage = page
     })
     paginator.addEventListener('loading', e => {
         clearTimeout(loadingTimer)
@@ -444,14 +448,42 @@ const sanitize = (node) => {
 
 const hideNote = () => { els.notePopup.hidden = true }
 
+// Some targets (every note in a MOBI) are empty markers: the note is what follows, up to the next
+// marker or the end of its paragraph. Returns null if the book has no text there.
+const noteAfterMarker = target => {
+    let block = target.closest('p, li, dd, td, blockquote')
+    if (!block) {
+        let next = target.nextSibling
+        while (next?.nodeType === Node.TEXT_NODE && !next.data.trim()) next = next.nextSibling
+        if (!next) return null
+        block = next.nodeType === Node.TEXT_NODE ? target.parentElement : next
+    }
+    const range = target.ownerDocument.createRange()
+    range.selectNodeContents(block)
+    if (block.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_CONTAINED_BY) range.setStartAfter(target)
+    const marker = [...block.querySelectorAll('[id]')].find(el => !el.textContent.trim()
+        && (target.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING))
+    if (marker) range.setEndBefore(marker)
+    if (!range.toString().trim()) return null
+    const content = target.ownerDocument.createElementNS('http://www.w3.org/1999/xhtml', 'div')
+    content.append(range.cloneContents())
+    return content
+}
+
 const showNote = (target, a, doc) => {
     let content = target
-    if (content.textContent.trim().length < 4 || content.localName === 'a')
+    if (!target.textContent.trim()) content = noteAfterMarker(target)
+    else if (content.textContent.trim().length < 4 || content.localName === 'a')
         content = target.closest('p, li, dd, div, aside, section') ?? target.parentElement ?? target
     const body = els.notePopup.querySelector('.note-body')
-    body.replaceChildren(sanitize(content))
-    // Back-links inside the note are useless in a popup.
-    body.querySelectorAll('a[href]').forEach(x => x.removeAttribute('href'))
+    if (content) {
+        body.replaceChildren(sanitize(content))
+        tightenPunctuation(body)
+        // Back-links inside the note are useless in a popup.
+        body.querySelectorAll('a[href]').forEach(x => x.removeAttribute('href'))
+    } else {
+        body.textContent = "This book's file doesn't include the text of this note."
+    }
     els.notePopup.hidden = false
     // Position near the reference.
     const d = reader.paginator.display

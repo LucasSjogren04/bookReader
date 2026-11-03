@@ -218,8 +218,8 @@ const BLOCKISH = /^(br|p|div|li|h[1-6]|img|td|tr|table|ul|ol|blockquote)$/i
 const isBlankText = n => n.nodeType === Node.TEXT_NODE && !n.data.trim()
 const isEmptyAnchor = n => n.nodeType === Node.ELEMENT_NODE && n.localName === 'a'
     && !n.textContent.trim() && !n.querySelector('img')
-const tightenPunctuation = doc => {
-    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT)
+export const tightenPunctuation = root => {
+    const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT)
     const leading = [], trailing = []
     for (let node; (node = walker.nextNode());) {
         if (!CLOSING_PUNCT.test(node.data)) continue
@@ -252,7 +252,7 @@ export const layoutFlow = async (doc, d, s, book) => {
         // a reason to make the text right-to-left.
         doc.brTextDir = doc.defaultView.getComputedStyle(doc.body).direction
         stripVerticalFonts(doc)
-        tightenPunctuation(doc)
+        tightenPunctuation(doc.body)
         style =doc.createElementNS('http://www.w3.org/1999/xhtml', 'style')
         style.id = 'br-style'
             ; (doc.head ?? html).append(style)
