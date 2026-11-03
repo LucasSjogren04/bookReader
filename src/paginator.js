@@ -13,7 +13,7 @@
 // Every layout change (window size, zoom, fonts, margins…) re-splits the pages immediately
 // and keeps the reader on the same text.
 
-import { THEMES, fontStack } from './settings.js'
+import { THEMES, MARGIN_SIZES, fontStack } from './settings.js'
 
 const ATOMIC_SELECTOR = [
     'figure', 'table', 'svg', 'pre', 'math', 'video', 'canvas', 'object', 'dl.equation',
@@ -209,6 +209,35 @@ const stripVerticalFonts = doc => {
     }
 }
 
+// Some converted books (MOBI/AZW especially) have a stray space after every inline tag, which
+// shows up as "Hitler ’s", "<i>The Coming War</i> ." or "A<small>MERICANS</small> ,". Remove
+// whitespace that sits between the end of an element and closing punctuation (or a dash glued
+// to the next word). Spaces before an opening "(" or "“" are left alone since those are real.
+const CLOSING_PUNCT = /^[ \t\r\n]+(?=[,.)\]’”]|[—–-][^\s])/
+const BLOCKISH = /^(br|p|div|li|h[1-6]|img|td|tr|table|ul|ol|blockquote)$/i
+const isBlankText = n => n.nodeType === Node.TEXT_NODE && !n.data.trim()
+const isEmptyAnchor = n => n.nodeType === Node.ELEMENT_NODE && n.localName === 'a'
+    && !n.textContent.trim() && !n.querySelector('img')
+const tightenPunctuation = doc => {
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT)
+    const leading = [], trailing = []
+    for (let node; (node = walker.nextNode());) {
+        if (!CLOSING_PUNCT.test(node.data)) continue
+        // Look back past blank text and empty anchors (<a id="…"></a>) to what the space follows
+        const blanks = []
+        let prev = node.previousSibling, anchor = false
+        while (prev && (isBlankText(prev) || isEmptyAnchor(prev))) {
+            if (prev.nodeType === Node.TEXT_NODE) blanks.push(prev)
+            else anchor = true
+            prev = prev.previousSibling
+        }
+        if (prev?.nodeType === Node.ELEMENT_NODE && !BLOCKISH.test(prev.localName)) leading.push(node, ...blanks)
+        else if (anchor && prev?.nodeType === Node.TEXT_NODE) leading.push(node, ...blanks), trailing.push(prev)
+    }
+    for (const node of leading) node.data = node.data.replace(/^[ \t\r\n]+/, '')
+    for (const node of trailing) node.data = node.data.replace(/[ \t\r\n]+$/, '')
+}
+
 /**
  * Lays out a reflowable document for the given dimensions; returns the number of pages
  * (columns) and views (screens).
@@ -223,7 +252,8 @@ export const layoutFlow = async (doc, d, s, book) => {
         // a reason to make the text right-to-left.
         doc.brTextDir = doc.defaultView.getComputedStyle(doc.body).direction
         stripVerticalFonts(doc)
-        style = doc.createElementNS('http://www.w3.org/1999/xhtml', 'style')
+        tightenPunctuation(doc)
+        style =doc.createElementNS('http://www.w3.org/1999/xhtml', 'style')
         style.id = 'br-style'
             ; (doc.head ?? html).append(style)
     }
@@ -386,7 +416,7 @@ export class Paginator extends EventTarget {
         const W = sw / z, H = sh / z
         const mV = Math.min(s.marginV / z, H * 0.2)
         // Side margins are a percentage of each page's width, so they scale with the screen.
-        const pct = Math.max(0, Number(s.marginSide) || 0) / 100
+        const pct = (MARGIN_SIZES[s.marginSize] ?? MARGIN_SIZES[1]).share
         const n = s.spread === 'double' ? 2 : s.spread === 'single' ? 1
             : (sw >= 900 && sw / sh > 1.15 && (W / 2) * (1 - 2 * pct) >= 340) ? 2 : 1
         let mH = pct * W / n
@@ -429,17 +459,17 @@ export class Paginator extends EventTarget {
     async next() {
         const d = this.#display
         if (!d) return
-        if (d.type === 'flow' && this.view < d.views - 1) return this.#setView(this.view + 1, true)
+        if (d.type === 'flow' && this.view < d.views - 1) return this.#setView(this.view + 1, 'next')
         const i = this.#nextIndex(d.type === 'fixed' ? Math.max(...d.indices) : d.index)
-        if (i != null) return this.#navigate({ index: i, view: 0 })
+        if (i != null) return this.#navigate({ index: i, view: 0, dir: 'next' })
     }
 
     async prev() {
         const d = this.#display
         if (!d) return
-        if (d.type === 'flow' && this.view > 0) return this.#setView(this.view - 1, true)
+        if (d.type === 'flow' && this.view > 0) return this.#setView(this.view - 1, 'prev')
         const i = this.#prevIndex(d.type === 'fixed' ? Math.min(...d.indices) : d.index)
-        if (i != null) return this.#navigate({ index: i, end: true })
+        if (i != null) return this.#navigate({ index: i, end: true, dir: 'prev' })
     }
 
     async goTo(target) {
@@ -511,29 +541,40 @@ export class Paginator extends EventTarget {
             else if (target.view != null) view = Math.min(display.views - 1, target.view)
             if (target.view === 'last') view = display.views - 1
         }
-        if (display !== cur) {
-            this.#textNodes = null
-            display.layer.style.visibility = ''
-            display.layer.classList.add('fade-in')
-            this.#display = display
-            if (cur) cur.destroy()
-            if (display.type === 'flow') this.#counts[display.index] = display.pages
-        }
-        this.#setView(view, false)
+        this.#turn(target.dir, () => {
+            if (display !== cur) {
+                this.#textNodes = null
+                display.layer.style.visibility = ''
+                if (!target.dir) display.layer.classList.add('fade-in')
+                this.#display = display
+                if (cur) cur.destroy()
+                if (display.type === 'flow') this.#counts[display.index] = display.pages
+            }
+            this.#setView(view)
+        })
         this.#prefetch()
         this.#scheduleCount()
     }
 
-    #setView(view, animate) {
+    // Page turns slide vertically: the page moves up and out while the next one comes up from
+    // below (the other way round going back). A View Transition snapshots the screen before and
+    // after the change, book frames included, and animates between the two.
+    #turn(dir, update) {
+        if (!dir || !this.#settings.animate || !document.startViewTransition) return update()
+        document.documentElement.dataset.turn = dir
+        document.startViewTransition(update)
+    }
+
+    #setView(view, dir) {
         const d = this.#display
         if (!d) return
-        this.view = Math.max(0, Math.min(view, (d.views ?? 1) - 1))
-        if (d.type === 'flow') {
-            const anim = animate && this.#settings.animate
-            d.iframe.classList.toggle('animate', !!anim)
-            d.iframe.style.transform = `scale(${d.dims.z}) translateX(${-this.view * d.dims.W}px)`
+        const apply = () => {
+            this.view = Math.max(0, Math.min(view, (d.views ?? 1) - 1))
+            if (d.type === 'flow') d.iframe.style.transform = `scale(${d.dims.z}) translateX(${-this.view * d.dims.W}px)`
+            this.dispatchEvent(new CustomEvent('relocate', { detail: this.progress() }))
         }
-        this.dispatchEvent(new CustomEvent('relocate', { detail: this.progress() }))
+        if (dir) this.#turn(dir, apply)
+        else apply()
     }
 
     #prefetch() {
@@ -890,7 +931,6 @@ export class Paginator extends EventTarget {
             const offset = pos?.offset
             const fraction = d.views > 1 ? this.view / d.views : 0
             const token = ++this.#token
-            d.iframe.classList.remove('animate')
             d.iframe.style.width = `${dims.W}px`
             d.iframe.style.height = `${dims.H}px`
             const { pages, views } = await layoutFlow(d.doc, dims, this.#settings, this.book)
@@ -900,7 +940,7 @@ export class Paginator extends EventTarget {
             this.#textNodes = null
             this.#counts[d.index] = pages
             const view = path ? this.#viewOfPath(d, path, offset) : Math.floor(fraction * views)
-            this.#setView(view, false)
+            this.#setView(view)
         } else {
             // Fixed pages are re-rendered at the new size (new dims → #show rebuilds them,
             // and the two-page grouping may change too).

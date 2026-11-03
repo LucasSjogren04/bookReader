@@ -10,7 +10,7 @@ export const defaults = Object.freeze({
     zoom: 100,               // % that scales everything (text, images, layout)
     lineHeight: 0,           // 0 = book's original
     align: 'original',       // original | justify | left
-    marginSide: 5,           // % of the page width, on each side
+    marginSize: 1,           // side margins: 0 none, 1 narrow, 2 medium, 3 wide (see MARGIN_SIZES)
     marginV: 36,
     spread: 'auto',          // auto | single | double
     pdfMode: 'smart',        // smart | original | reflow
@@ -47,11 +47,20 @@ export const onSettingChange = fn => {
     return () => listeners.delete(fn)
 }
 
+// Side margin per position of the slider, as a share of each page's width so the same choice
+// looks the same on 1080p, 1440p and 4K screens.
+export const MARGIN_SIZES = [
+    { name: 'None', share: 0.015 },
+    { name: 'Narrow', share: 0.05 },
+    { name: 'Medium', share: 0.12 },
+    { name: 'Wide', share: 0.25 },
+]
+
 export const THEMES = {
-    light: { bg: '#ffffff', fg: '#1d1d1f', link: '#2f54c9', dark: false },
+    light: { bg: '#ffffff', fg: '#202122', link: '#3366cc', dark: false },
     sepia: { bg: '#f4ecd8', fg: '#5b4636', link: '#8a4f1c', dark: false },
-    dark: { bg: '#212226', fg: '#d6d6d9', link: '#8ea8ff', dark: true },
-    black: { bg: '#000000', fg: '#c9c9cc', link: '#8ea8ff', dark: true },
+    dark: { bg: '#101418', fg: '#eaecf0', link: '#88a3e8', dark: true },
+    black: { bg: '#000000', fg: '#eaecf0', link: '#88a3e8', dark: true },
 }
 
 export const fontStack = s => {

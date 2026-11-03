@@ -1,7 +1,7 @@
 import * as db from './db.js'
 import { openBook, makeThumbnail, bookTitle, bookAuthor, UnsupportedError } from './formats.js'
 import { Paginator } from './paginator.js'
-import { settings, setSetting, onSettingChange, resetSettings } from './settings.js'
+import { settings, setSetting, onSettingChange, resetSettings, MARGIN_SIZES } from './settings.js'
 
 const $ = sel => document.querySelector(sel)
 const $$ = sel => [...document.querySelectorAll(sel)]
@@ -26,6 +26,7 @@ const els = {
     settingsPanel: $('#settings-panel'),
     notePopup: $('#note-popup'),
     dropOverlay: $('#drop-overlay'),
+    bookCount: $('#book-count'),
     toasts: $('#toasts'),
 }
 
@@ -58,10 +59,9 @@ const hashFile = async file => {
     return [...new Uint8Array(digest)].slice(0, 16).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-const hue = str => [...str].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)
-
 const applyTheme = () => {
     document.documentElement.dataset.theme = settings.theme
+    syncThemeLink()
 }
 
 const EPUB_NS = 'http://www.idpf.org/2007/ops'
@@ -75,7 +75,8 @@ let coverURLs = []
 const renderLibrary = async () => {
     const books = await db.listBooks()
     const q = els.search.value.trim().toLowerCase()
-    const sort = els.sort.value
+    const sort = sortMode
+    els.bookCount.textContent = books.length === 1 ? '1 book' : `${books.length} books`
     const list = books
         .filter(b => !q || b.title.toLowerCase().includes(q) || (b.author ?? '').toLowerCase().includes(q))
         .sort((a, b) => {
@@ -104,8 +105,6 @@ const renderLibrary = async () => {
             img.loading = 'lazy'
             cover.append(img)
         } else {
-            const h = hue(book.title)
-            cover.style.background = `linear-gradient(160deg, hsl(${h} 45% 42%), hsl(${(h + 40) % 360} 50% 26%))`
             const ph = document.createElement('div')
             ph.className = 'placeholder'
             const pt = document.createElement('div'); pt.className = 'pt'; pt.textContent = book.title
@@ -208,16 +207,30 @@ els.fileInput.addEventListener('change', async () => {
     if (files.length === 1 && id) openReader(id)
 })
 els.search.addEventListener('input', debounce(renderLibrary, 120))
-els.sort.addEventListener('change', () => {
-    try { localStorage.setItem('shelf-sort', els.sort.value) } catch {}
+// Sorting is shown as tabs, like "Read / Edit / View history" on Wikipedia.
+let sortMode = 'opened'
+try { sortMode = localStorage.getItem('shelf-sort') ?? 'opened' } catch {}
+const syncSortTabs = () => els.sort.querySelectorAll('[data-sort]').forEach(tab => {
+    tab.classList.toggle('selected', tab.dataset.sort === sortMode)
+    tab.setAttribute('aria-selected', tab.dataset.sort === sortMode)
+})
+els.sort.addEventListener('click', e => {
+    const tab = e.target.closest('[data-sort]')
+    if (!tab || tab.dataset.sort === sortMode) return
+    sortMode = tab.dataset.sort
+    try { localStorage.setItem('shelf-sort', sortMode) } catch {}
+    syncSortTabs()
     renderLibrary()
 })
-try { els.sort.value = localStorage.getItem('shelf-sort') ?? 'opened' } catch {}
+syncSortTabs()
+$('.wk-search').addEventListener('submit', e => { e.preventDefault(); renderLibrary() })
 
+const THEME_CYCLE = ['light', 'sepia', 'dark', 'black']
+const THEME_NAMES = { light: 'Light', sepia: 'Sepia', dark: 'Dark', black: 'Black' }
+const syncThemeLink = () => { $('#lib-theme').textContent = `Color: ${THEME_NAMES[settings.theme] ?? 'Light'}` }
 $('#lib-theme').addEventListener('click', () => {
     setSetting('theme', THEME_CYCLE[(THEME_CYCLE.indexOf(settings.theme) + 1) % THEME_CYCLE.length])
 })
-const THEME_CYCLE = ['light', 'sepia', 'dark', 'black']
 
 // Drag & drop anywhere on the page.
 let dragDepth = 0
@@ -388,12 +401,11 @@ const bindPaginator = paginator => {
     paginator.addEventListener('doc-touchend', e => onTouchEnd(e.detail))
 }
 
-const onTap = ({ x, width }) => {
+// Clicking the page never turns it (so clicking to select text or look words up is safe);
+// it only dismisses an open footnote or an overlay panel.
+const onTap = () => {
     if (!els.notePopup.hidden) { hideNote(); return }
-    if (!els.tocPanel.hidden || !els.settingsPanel.hidden) { closePanels(); return }
-    if (x < width * 0.28) reader?.paginator.prev()
-    else if (x > width * 0.72) reader?.paginator.next()
-    else els.readerView.classList.toggle('immersive')
+    if (panelsOverlay() && (!els.tocPanel.hidden || !els.settingsPanel.hidden)) closePanels()
 }
 
 els.stage.addEventListener('click', e => {
@@ -507,7 +519,7 @@ const renderTOC = book => {
             a.addEventListener('click', async e => {
                 e.preventDefault()
                 if (!item.href) return
-                closePanels()
+                // Contents stays open so you can keep jumping between chapters.
                 await reader?.paginator.goToHref(item.href)
             })
             item.el = a
@@ -562,13 +574,16 @@ const closePanels = () => {
     els.tocPanel.hidden = true
     els.settingsPanel.hidden = true
 }
+// Wide windows: both panels can stay pinned beside the book (the pages re-split to the
+// remaining width). Narrow windows: they are overlays and only one is open at a time.
+const panelsOverlay = () => matchMedia('(max-width: 1000px)').matches
 const togglePanel = panel => {
     const open = panel.hidden
-    closePanels()
+    if (panelsOverlay()) closePanels()
     panel.hidden = !open
     if (open && panel === els.tocPanel) els.toc.querySelector('a.current')?.scrollIntoView({ block: 'center' })
 }
-$$('[data-close]').forEach(b => b.addEventListener('click', closePanels))
+$$('[data-close]').forEach(b => b.addEventListener('click', () => { b.closest('.drawer').hidden = true }))
 $('#btn-library').addEventListener('click', () => closeReader())
 $('#btn-toc').addEventListener('click', () => togglePanel(els.tocPanel))
 $('#btn-settings').addEventListener('click', () => togglePanel(els.settingsPanel))
@@ -633,7 +648,11 @@ const onTouchEnd = e => {
     if (!touch || !reader) return
     const t = e.changedTouches[0]
     const dx = t.screenX - touch.x, dy = t.screenY - touch.y
-    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - touch.time < 800)
+    // Pages turn vertically, so swiping up goes forward (sideways swipes still work too).
+    const quick = Date.now() - touch.time < 800
+    if (quick && Math.abs(dy) > 50 && Math.abs(dy) > Math.abs(dx) * 1.5)
+        dy < 0 ? reader.paginator.next() : reader.paginator.prev()
+    else if (quick && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5)
         dx < 0 ? reader.paginator.next() : reader.paginator.prev()
     touch = null
 }
@@ -645,7 +664,7 @@ els.stage.addEventListener('touchend', onTouchEnd, { passive: true })
 const formatSetting = (key, value) => {
     if (key === 'zoom') return `${value}%`
     if (key === 'lineHeight') return Number(value) ? Number(value).toFixed(1) : 'Original'
-    if (key === 'marginSide') return `${value}%`
+    if (key === 'marginSize') return MARGIN_SIZES[value]?.name ?? ''
     if (key === 'marginV') return `${value}px`
     return String(value)
 }

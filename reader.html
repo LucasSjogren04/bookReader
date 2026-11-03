@@ -8,52 +8,76 @@
 <title>Shelf</title>
 <link rel="icon" href="icons/icon32.png">
 <link rel="manifest" href="app.webmanifest">
-<meta name="theme-color" content="#3b5bdb">
+<meta name="theme-color" content="#f8f9fa">
 <link rel="stylesheet" href="src/style.css">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute">
-  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-  <symbol id="i-next" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-  <symbol id="i-toc" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
-  <symbol id="i-font" viewBox="0 0 24 24"><path d="M3 19l5-14 5 14M5 14h6M15 19l3.5-9 3.5 9M16.2 16h4.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-  <symbol id="i-full" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
-  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
-  <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 6.5C10 5 7 4.5 3.5 5v13c3.5-.5 6.5 0 8.5 1.5 2-1.5 5-2 8.5-1.5V5C17 4.5 14 5 12 6.5zM12 6.5v13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
-  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-back" viewBox="0 0 20 20"><path d="M12.5 4.5 7 10l5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-next" viewBox="0 0 20 20"><path d="M7.5 4.5 13 10l-5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-toc" viewBox="0 0 20 20"><path d="M3 5h14M3 10h14M3 15h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-font" viewBox="0 0 20 20"><path d="M2.5 16 7 4l4.5 12M4.2 11.5h5.6M12.5 16l2.75-7 2.75 7M13.4 13.8h3.7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-full" viewBox="0 0 20 20"><path d="M3 7.5V3h4.5M17 7.5V3h-4.5M3 12.5V17h4.5M17 12.5V17h-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 20 20"><path d="M10 3.5v13M3.5 10h13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 20 20"><path d="M3.5 5.5h13M8.5 9v5M11.5 9v5M5 5.5l1 11h8l1-11M7.5 5.5V3h5v2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 20 20"><path d="M16.5 12A7 7 0 0 1 8 3.5 7 7 0 1 0 16.5 12z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 6.5C10 5 7 4.5 3.5 5v13c3.5-.5 6.5 0 8.5 1.5 2-1.5 5-2 8.5-1.5V5C17 4.5 14 5 12 6.5zM12 6.5v13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+  <symbol id="i-search" viewBox="0 0 20 20"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m12.7 12.7 4.3 4.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-close" viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
 </svg>
 
 <!-- Library -->
 <div id="library-view" class="view">
-  <header class="lib-header">
-    <div class="brand"><svg><use href="#i-book"/></svg><span>Shelf</span></div>
-    <input id="search" type="search" placeholder="Search title or author" autocomplete="off">
-    <select id="sort" title="Sort">
-      <option value="opened">Recently read</option>
-      <option value="added">Recently added</option>
-      <option value="title">Title</option>
-      <option value="author">Author</option>
-    </select>
-    <button id="lib-theme" class="icon-btn" title="Toggle dark mode"><svg><use href="#i-moon"/></svg></button>
-    <label class="btn primary" title="Add books">
-      <svg><use href="#i-plus"/></svg><span>Add books</span>
-      <input id="file-input" type="file" multiple hidden
-        accept=".epub,.kepub,.mobi,.azw,.azw3,.kf8,.prc,.pdb,.pdf,.fb2,.fbz,.zip,.cbz,.txt,.text,.html,.htm,.xhtml,.md,.markdown">
-    </label>
-  </header>
-  <main class="library">
-    <div id="empty-state" class="empty-state" hidden>
-      <div class="drop-target">
-        <svg><use href="#i-book"/></svg>
-        <h2>Drop books here</h2>
-        <p>EPUB, AZW3, MOBI, AZW, PRC, PDF, FB2, FBZ, CBZ, TXT, HTML and Markdown.<br>
-          Everything stays in this browser.</p>
+  <header class="wk-header">
+    <a class="wk-logo" href="reader.html" title="Shelf">
+      <svg class="wk-logo-icon"><use href="#i-book"/></svg>
+      <span class="wk-wordmark"><span class="wk-wordmark-name">Shelf</span><span class="wk-wordmark-tag">The private book reader</span></span>
+    </a>
+    <form class="wk-search" role="search">
+      <div class="wk-search-input">
+        <svg><use href="#i-search"/></svg>
+        <input id="search" type="search" placeholder="Search Shelf" autocomplete="off" aria-label="Search title or author">
       </div>
-    </div>
-    <div id="grid" class="grid"></div>
-  </main>
+      <button type="submit" class="btn">Search</button>
+    </form>
+    <nav class="wk-user-links">
+      <button id="lib-theme" class="wk-link" title="Change color theme"></button>
+      <label class="wk-link" title="Add books">
+        Add books
+        <input id="file-input" type="file" multiple hidden
+          accept=".epub,.kepub,.mobi,.azw,.azw3,.kf8,.prc,.pdb,.pdf,.fb2,.fbz,.zip,.cbz,.txt,.text,.html,.htm,.xhtml,.md,.markdown">
+      </label>
+    </nav>
+  </header>
+  <div class="wk-page-wrap">
+    <main class="library wk-page">
+      <div class="wk-titlebar">
+        <h1 class="wk-title">Library</h1>
+        <span id="book-count" class="wk-titlebar-aside"></span>
+      </div>
+      <div class="wk-toolbar">
+        <div class="wk-tabs"><span class="wk-tab selected">Books</span></div>
+        <div id="sort" class="wk-tabs" role="tablist" aria-label="Sort by">
+          <button class="wk-tab" data-sort="opened" role="tab">Recently read</button>
+          <button class="wk-tab" data-sort="added" role="tab">Recently added</button>
+          <button class="wk-tab" data-sort="title" role="tab">Title</button>
+          <button class="wk-tab" data-sort="author" role="tab">Author</button>
+        </div>
+      </div>
+      <div class="wk-sitesub">From Shelf, your private library</div>
+      <div id="empty-state" class="empty-state" hidden>
+        <p>Your library is empty. <b>Shelf</b> converts e-books to web pages that keep the look of the original,
+          splits them into pages that fit your screen, and keeps everything in this browser.</p>
+        <h2>Adding books</h2>
+        <div class="drop-target">
+          <svg><use href="#i-book"/></svg>
+          <p><b>Drop books anywhere on this page</b>, or use <i>Add books</i> at the top.</p>
+          <p class="drop-formats">EPUB · AZW3 · MOBI · AZW · PRC · PDF · FB2 · FBZ · CBZ · TXT · HTML · Markdown</p>
+        </div>
+      </div>
+      <div id="grid" class="grid"></div>
+    </main>
+  </div>
 </div>
 
 <!-- Reader -->
@@ -70,26 +94,26 @@
   </div>
   <footer class="rbar bottom">
     <button id="btn-prev" class="icon-btn" title="Previous page"><svg><use href="#i-back"/></svg></button>
-    <input id="progress" type="range" min="0" max="1000" value="0">
+    <input id="progress" type="range" min="0" max="1000" value="0" aria-label="Position in book">
     <span id="page-label" class="page-label"></span>
     <button id="btn-next" class="icon-btn" title="Next page"><svg><use href="#i-next"/></svg></button>
   </footer>
 
   <aside id="toc-panel" class="drawer left" hidden>
-    <div class="drawer-head"><h3>Contents</h3><button class="icon-btn" data-close><svg><use href="#i-close"/></svg></button></div>
+    <div class="drawer-head"><h3>Contents</h3><button class="hide-btn" data-close>hide</button></div>
     <nav id="toc"></nav>
   </aside>
 
   <aside id="settings-panel" class="drawer right" hidden>
-    <div class="drawer-head"><h3>Appearance</h3><button class="icon-btn" data-close><svg><use href="#i-close"/></svg></button></div>
+    <div class="drawer-head"><h3>Appearance</h3><button class="hide-btn" data-close>hide</button></div>
     <div class="settings">
       <div class="field">
-        <label>Theme</label>
+        <label>Color</label>
         <div class="seg" data-setting="theme">
-          <button data-value="light" class="sw sw-light">Light</button>
-          <button data-value="sepia" class="sw sw-sepia">Sepia</button>
-          <button data-value="dark" class="sw sw-dark">Dark</button>
-          <button data-value="black" class="sw sw-black">Black</button>
+          <button data-value="light">Light</button>
+          <button data-value="sepia">Sepia</button>
+          <button data-value="dark">Dark</button>
+          <button data-value="black">Black</button>
         </div>
       </div>
       <div class="field">
@@ -143,20 +167,20 @@
           <button data-value="left">Left</button>
         </div>
       </div>
-      <div class="field two">
-        <div>
-          <label for="s-mh">Side margins <output data-for="marginSide"></output></label>
-          <input id="s-mh" type="range" min="0" max="40" step="1" data-setting="marginSide">
-        </div>
-        <div>
-          <label for="s-mv">Top/bottom <output data-for="marginV"></output></label>
-          <input id="s-mv" type="range" min="0" max="120" step="4" data-setting="marginV">
-        </div>
+      <div class="field">
+        <label for="s-mh">Side margins <output data-for="marginSize"></output></label>
+        <input id="s-mh" type="range" min="0" max="3" step="1" list="margin-stops" data-setting="marginSize">
+        <datalist id="margin-stops"><option value="0"></option><option value="1"></option><option value="2"></option><option value="3"></option></datalist>
+        <div class="stops"><span>None</span><span>Narrow</span><span>Medium</span><span>Wide</span></div>
+      </div>
+      <div class="field">
+        <label for="s-mv">Top and bottom margins <output data-for="marginV"></output></label>
+        <input id="s-mv" type="range" min="0" max="120" step="4" data-setting="marginV">
       </div>
       <div class="field">
         <label>Pages per screen</label>
         <div class="seg" data-setting="spread">
-          <button data-value="auto">Auto</button>
+          <button data-value="auto">Automatic</button>
           <button data-value="single">One</button>
           <button data-value="double">Two</button>
         </div>
@@ -170,22 +194,24 @@
         </div>
       </div>
       <div class="field">
-        <label>Original pages in dark themes</label>
+        <label>Original pages in dark colors</label>
         <div class="seg" data-setting="invertFixed">
-          <button data-value="auto" title="Invert text-only pages, leave photos alone">Auto</button>
+          <button data-value="auto" title="Invert text-only pages, leave photos alone">Automatic</button>
           <button data-value="always">Invert</button>
           <button data-value="never">Keep</button>
         </div>
       </div>
       <div class="field checks">
-        <label><input type="checkbox" data-setting="hyphenate"> Hyphenation</label>
-        <label><input type="checkbox" data-setting="animate"> Page turn animation</label>
+        <label>Other</label>
+        <label class="check"><input type="checkbox" data-setting="hyphenate"> Hyphenation</label>
+        <label class="check"><input type="checkbox" data-setting="animate"> Page turn animation</label>
       </div>
-      <button id="btn-reset" class="btn small ghost">Reset to defaults</button>
+      <button id="btn-reset" class="btn small">Reset to defaults</button>
     </div>
   </aside>
 
   <div id="note-popup" class="note-popup" hidden>
+    <div class="note-head">Note</div>
     <div class="note-body"></div>
   </div>
 </div>
