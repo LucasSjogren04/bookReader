@@ -1,7 +1,7 @@
 // Real-time paginator.
 //
 // Reflowable sections are rendered in a sandboxed iframe and split into pages with CSS columns
-// sized to the current screen, zoom level and font settings. Before splitting, "visual units"
+// sized to the current screen and font settings. Before splitting, "visual units"
 // (figures, charts, tables, SVG, maths, image + caption groups) are measured: a unit that fits on
 // a page is never split; one slightly too large is scaled down to fit a page; one far too large
 // (a very long table) is allowed to break, because shrinking it would make it unreadable. A short
@@ -10,7 +10,7 @@
 // Fixed sections (PDF pages kept in their original construction, pre-paginated EPUB/KF8,
 // comics) are shown whole, scaled to fit, side by side when two pages fit on screen.
 //
-// Every layout change (window size, zoom, fonts, margins…) re-splits the pages immediately
+// Every layout change (window size, browser zoom, fonts, margins…) re-splits the pages immediately
 // and keeps the reader on the same text.
 
 import { THEMES, MARGIN_SIZES, fontStack } from './settings.js'
@@ -412,19 +412,18 @@ export class Paginator extends EventTarget {
         const s = this.#settings
         const rect = this.#stage.getBoundingClientRect()
         const sw = Math.max(200, rect.width), sh = Math.max(200, rect.height)
-        const z = Math.max(0.25, s.zoom / 100)
-        const W = sw / z, H = sh / z
-        const mV = Math.min(s.marginV / z, H * 0.2)
+        const W = sw, H = sh
+        const mV = Math.min(s.marginV, H * 0.2)
         // Side margins are a percentage of each page's width, so they scale with the screen.
         const pct = (MARGIN_SIZES[s.marginSize] ?? MARGIN_SIZES[1]).share
         const n = s.spread === 'double' ? 2 : s.spread === 'single' ? 1
             : (sw >= 900 && sw / sh > 1.15 && (W / 2) * (1 - 2 * pct) >= 340) ? 2 : 1
         let mH = pct * W / n
-        if (n === 2) mH = Math.max(mH, 14 / z)
+        if (n === 2) mH = Math.max(mH, 14)
         // Wide margins are fine as long as a column stays readable (≥ 260 CSS px).
         mH = Math.max(0, Math.min(mH, (W / n - 260) / 2))
         const cw = (W - 2 * n * mH) / n
-        return { sw, sh, z, W, H, mH, mV, n, cw }
+        return { sw, sh, W, H, mH, mV, n, cw }
     }
 
     // --- navigation ---------------------------------------------------------------------------
@@ -570,7 +569,7 @@ export class Paginator extends EventTarget {
         if (!d) return
         const apply = () => {
             this.view = Math.max(0, Math.min(view, (d.views ?? 1) - 1))
-            if (d.type === 'flow') d.iframe.style.transform = `scale(${d.dims.z}) translateX(${-this.view * d.dims.W}px)`
+            if (d.type === 'flow') d.iframe.style.transform = `translateX(${-this.view * d.dims.W}px)`
             this.dispatchEvent(new CustomEvent('relocate', { detail: this.progress() }))
         }
         if (dir) this.#turn(dir, apply)
@@ -607,7 +606,6 @@ export class Paginator extends EventTarget {
         const iframe = makeIframe()
         iframe.style.width = `${dims.W}px`
         iframe.style.height = `${dims.H}px`
-        iframe.style.transform = `scale(${dims.z})`
         layer.append(iframe)
         try {
             await loadIframe(iframe, url)
@@ -728,8 +726,7 @@ export class Paginator extends EventTarget {
         const d = this.#display
         let x = e.clientX, y = e.clientY
         if (d?.type === 'flow' && d.doc === doc) {
-            x = (e.clientX - this.view * d.dims.W) * d.dims.z
-            y = e.clientY * d.dims.z
+            x = e.clientX - this.view * d.dims.W
         } else {
             const frame = doc.defaultView.frameElement
             const r = frame.getBoundingClientRect(), sr = this.#stage.getBoundingClientRect()

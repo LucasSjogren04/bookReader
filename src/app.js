@@ -459,8 +459,8 @@ const showNote = (target, a, doc) => {
     const r = a.getBoundingClientRect()
     let x, y
     if (d?.type === 'flow' && d.doc === doc) {
-        x = sr.left + (r.left - reader.paginator.view * d.dims.W) * d.dims.z
-        y = sr.top + r.bottom * d.dims.z
+        x = sr.left + r.left - reader.paginator.view * d.dims.W
+        y = sr.top + r.bottom
     } else {
         const fr = doc.defaultView.frameElement.getBoundingClientRect()
         const scale = fr.width / doc.defaultView.frameElement.offsetWidth
@@ -614,9 +614,6 @@ const onKeydown = e => {
         case 't': case 'T': togglePanel(els.tocPanel); break
         case 'a': case 'A': togglePanel(els.settingsPanel); break
         case 'f': case 'F': toggleFullscreen(); break
-        case '+': case '=': setSetting('zoom', Math.min(250, settings.zoom + 10)); syncControls(); break
-        case '-': setSetting('zoom', Math.max(50, settings.zoom - 10)); syncControls(); break
-        case '0': setSetting('zoom', 100); syncControls(); break
         default: return
     }
     e.preventDefault()
@@ -662,7 +659,6 @@ els.stage.addEventListener('touchend', onTouchEnd, { passive: true })
 // --- settings panel ---------------------------------------------------------------------------
 
 const formatSetting = (key, value) => {
-    if (key === 'zoom') return `${value}%`
     if (key === 'lineHeight') return Number(value) ? Number(value).toFixed(1) : 'Original'
     if (key === 'marginSize') return MARGIN_SIZES[value]?.name ?? ''
     if (key === 'marginV') return `${value}px`

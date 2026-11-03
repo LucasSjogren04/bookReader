@@ -7,7 +7,6 @@ export const defaults = Object.freeze({
     fontFamily: 'original',  // original | serif | sans | mono | custom
     customFont: '',
     textSize: 'original',    // 'original' or a size in points (like Google Docs), for the body text
-    zoom: 100,               // % that scales everything (text, images, layout)
     lineHeight: 0,           // 0 = book's original
     align: 'original',       // original | justify | left
     marginSize: 1,           // side margins: 0 none, 1 narrow, 2 medium, 3 wide (see MARGIN_SIZES)

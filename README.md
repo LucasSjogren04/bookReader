@@ -35,8 +35,8 @@ DRM-protected files and KFX can't be read (convert them with Calibre first).
 
 ## How pagination works
 
-* **Reflowable text** is split into pages in real time with CSS columns, sized to the window,
-  zoom, font, line spacing and margins. Any change re-splits immediately and keeps your place.
+* **Reflowable text** is split into pages in real time with CSS columns, sized to the window
+  (including browser zoom), font, line spacing and margins. Any change re-splits immediately and keeps your place.
 * **Figures, charts, tables, SVG, maths and image+caption groups** are never split across pages.
   If one is a bit too big for a page it is scaled to fit; if it's far too big (a very long table)
   it is allowed to break so it stays readable. A short section made of charts/tables and notes
@@ -51,7 +51,7 @@ DRM-protected files and KFX can't be read (convert them with Calibre first).
 ## Keys
 
 `←/→`, `PageUp/PageDown`, `Space` turn pages · `T` contents · `A` appearance · `F` full screen ·
-`+`/`-`/`0` zoom · `Esc` back. Click the left/right edge to turn pages, the middle to hide the bars.
+`Esc` back. Use the browser's own zoom (`Ctrl`+`+`/`-`/`0`) to scale everything.
 
 ## Development
 
