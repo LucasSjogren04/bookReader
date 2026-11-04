@@ -333,6 +333,7 @@ input[type="range"], input[type="checkbox"] { accent-color: var(--progressive); 
     padding-bottom: 6px; margin-bottom: 6px; border-bottom: 1px solid var(--border-muted);
 }
 .drawer-head h3 { margin: 0; font-size: 14px; font-weight: 700; }
+#toc, .settings { scrollbar-width: none; }
 #toc { overflow: auto; padding: 4px 0 30px; font-size: 14px; }
 #toc ul { list-style: none; margin: 0; padding: 0; }
 #toc ul ul { padding-left: 12px; }
