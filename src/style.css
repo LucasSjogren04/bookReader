@@ -266,7 +266,7 @@ input[type="range"], input[type="checkbox"] { accent-color: var(--progressive); 
 /* ---------- Reader ---------- */
 #reader-view {
     display: grid; background: var(--page); color: var(--text);
-    grid-template: "top top top" auto "toc main app" minmax(0, 1fr) "toc bottom app" auto / auto minmax(0, 1fr) auto;
+    grid-template: "top" auto "main" minmax(0, 1fr) "bottom" auto / minmax(0, 1fr);
 }
 .rbar {
     display: flex; align-items: center; gap: 4px; padding: 0 12px; height: 48px;
@@ -316,9 +316,18 @@ input[type="range"], input[type="checkbox"] { accent-color: var(--progressive); 
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* Pinned side columns, like Wikipedia's "Contents" and "Appearance". */
-.drawer { display: flex; flex-direction: column; min-height: 0; background: var(--page); color: var(--text); }
-.drawer.left { grid-area: toc; width: 260px; padding: 12px 8px 0 20px; }
-.drawer.right { grid-area: app; width: 260px; padding: 12px 20px 0 8px; }
+/* The menus float over the page, so opening one never changes the size of the text column. */
+.drawer {
+    position: fixed; top: 48px; bottom: 42px; z-index: 50; width: min(280px, 88vw);
+    display: flex; flex-direction: column; min-height: 0; padding: 12px 16px 0;
+    background: var(--page); color: var(--text); box-shadow: var(--shadow-popup);
+}
+.drawer.left { left: 0; view-transition-name: menu-left; }
+.drawer.right { right: 0; view-transition-name: menu-right; }
+/* Named so the sliding page passes behind an open menu instead of over it. */
+::view-transition-old(menu-left), ::view-transition-new(menu-left),
+::view-transition-old(menu-right), ::view-transition-new(menu-right) { animation: none; }
+::view-transition-old(menu-left), ::view-transition-old(menu-right) { display: none; }
 .drawer-head {
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
     padding-bottom: 6px; margin-bottom: 6px; border-bottom: 1px solid var(--border-muted);
@@ -363,16 +372,6 @@ input[type="range"], input[type="checkbox"] { accent-color: var(--progressive); 
 .seg button:focus-visible { outline: none; }
 .seg button:focus-visible::before { box-shadow: 0 0 0 1px var(--page), 0 0 0 3px var(--progressive); }
 #btn-reset { align-self: flex-start; }
-
-/* Narrow windows: the side columns become overlays. */
-@media (max-width: 1000px) {
-    .drawer {
-        position: fixed; top: 48px; bottom: 0; z-index: 50; width: min(300px, 88vw) !important;
-        box-shadow: var(--shadow-popup); padding: 12px 16px 0 !important;
-    }
-    .drawer.left { left: 0; }
-    .drawer.right { right: 0; }
-}
 
 /* Footnotes appear like Wikipedia's reference previews. */
 .note-popup {
