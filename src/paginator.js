@@ -1,17 +1,18 @@
-// Real-time paginator.
+// Continuous-scroll book view.
 //
-// Reflowable sections are rendered in a sandboxed iframe and split into pages with CSS columns
-// sized to the current screen and font settings. Before splitting, "visual units"
-// (figures, charts, tables, SVG, maths, image + caption groups) are measured: a unit that fits on
-// a page is never split; one slightly too large is scaled down to fit a page; one far too large
-// (a very long table) is allowed to break, because shrinking it would make it unreadable. A short
-// section made of such units (a chart page with notes, say) is kept together as a single page.
+// The book is one vertical strip with no visible page breaks: every section (a chapter file, a
+// run of reflowed PDF pages, an original PDF page…) is a block in a single scrolling container.
+// Reflowable sections are rendered in iframes as tall as their content, so the text just flows
+// on. Only blocks near the screen are loaded; the rest are placeholders that are measured in the
+// background, so their height is usually exact long before you reach them. When a height above
+// the screen does change, the browser's scroll anchoring keeps the text you are reading still.
 //
-// Fixed sections (PDF pages kept in their original construction, pre-paginated EPUB/KF8,
-// comics) are shown whole, scaled to fit, side by side when two pages fit on screen.
+// Pages exist only in the page map behind the scroller at the bottom: the book's own pages when
+// it has them (an EPUB page list, a PDF's pages), otherwise one screen-height page at a time,
+// with every section starting a new page.
 //
-// Every layout change (window size, browser zoom, fonts, margins…) re-splits the pages immediately
-// and keeps the reader on the same text.
+// The scroll position is the single source of truth. The current page, how far into that page
+// the screen is, and the saved location are all derived from it, never stored separately.
 
 import { THEMES, MARGIN_SIZES, fontStack } from './settings.js'
 
@@ -24,8 +25,14 @@ const ATOMIC_SELECTOR = [
 const TABLE_LIKE = 'table, pre, [class*="table" i]'
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
-const nextFrame = () => new Promise(r => requestAnimationFrame(() => r()))
 const idle = () => new Promise(r => (window.requestIdleCallback ?? setTimeout)(() => r(), { timeout: 200 }))
+// Next frame, or a short timeout when the page is hidden and frames don't run.
+const nextFrame = fn => {
+    let done = false
+    const run = () => { if (!done) { done = true; fn() } }
+    requestAnimationFrame(run)
+    setTimeout(run, 100)
+}
 
 const loadIframe = (iframe, url) => new Promise((resolve, reject) => {
     const timer = setTimeout(() => resolve(), 15000)
@@ -68,44 +75,37 @@ img[data-br-imgbg] { background-color: #fff !important; }` : ''}`
 
 const layoutCSS = (d, s, textDir) => {
     const font = fontStack(s)
-    const pageH = d.H - 2 * d.mV
     const lh = Number(s.lineHeight)
+    const maxH = d.sh - 2 * d.gap
     const alignSel = 'p:not([class*="center" i]):not([class*="right" i]):not([style*="text-align" i]):not([align]), li, dd, blockquote'
     return `
 html {
-    width: ${d.W}px !important; height: ${d.H}px !important;
+    width: ${d.W}px !important; height: auto !important;
     min-width: 0 !important; min-height: 0 !important; max-width: none !important; max-height: none !important;
-    margin: 0 !important; padding: ${d.mV}px ${d.mH}px !important; box-sizing: border-box !important;
-    column-count: ${d.n} !important; column-gap: ${2 * d.mH}px !important; column-fill: auto !important;
-    column-width: auto !important; column-rule: none !important;
-    overflow: visible !important; direction: ltr !important; writing-mode: horizontal-tb !important;
+    margin: 0 !important; padding: ${d.gap}px ${d.mH}px !important; box-sizing: border-box !important;
+    columns: auto !important; column-count: auto !important;
+    overflow: hidden !important; direction: ltr !important; writing-mode: horizontal-tb !important;
     -webkit-text-size-adjust: none; text-size-adjust: none;
 }
-html.br-measure { column-count: auto !important; height: auto !important; width: ${d.cw + 2 * d.mH}px !important; }
 body {
     height: auto !important; min-height: 0 !important; max-height: none !important;
     width: auto !important; max-width: none !important; overflow: visible !important;
     position: static !important; float: none !important; column-count: auto !important; columns: auto !important;
-    /* Browsers carry the <body>'s direction and writing mode up to the page itself, which would
-       make the columns run right-to-left (or top-to-bottom) off screen, so pages always flow
-       left to right. Right-to-left text keeps its direction one level down. */
+    /* Browsers carry the <body>'s direction and writing mode up to the document itself; the
+       strip always runs top to bottom, so right-to-left text keeps its direction one level down
+       and vertical (Japanese) text is laid out horizontally. */
     direction: ltr !important; writing-mode: horizontal-tb !important;
 }
 ${textDir === 'rtl' ? 'body > * { direction: rtl; }' : ''}
-img, video, canvas, object { max-width: 100% !important; max-height: ${pageH}px !important; object-fit: contain; box-sizing: border-box; }
-svg { max-width: 100% !important; max-height: ${pageH}px !important; }
-img, svg, video { break-inside: avoid; }
-[data-br-atomic] { break-inside: avoid !important; }
-h1, h2, h3, h4, h5, h6 { break-after: avoid; break-inside: avoid; }
-p { orphans: 2; widows: 2; }
+img, video, canvas, object { max-width: 100% !important; max-height: ${maxH}px !important; object-fit: contain; box-sizing: border-box; }
+svg { max-width: 100% !important; max-height: ${maxH}px !important; }
 aside[*|type~="footnote"], aside[*|type~="note"], aside[role="doc-footnote"] { display: none !important; }
 #br-end { display: block !important; height: 0 !important; margin: 0 !important; padding: 0 !important; border: 0 !important; float: none !important; clear: both; }
-html.br-image-page { column-count: 1 !important; }
-html.br-image-page body { height: ${pageH}px !important; margin: 0 !important; padding: 0 !important;
+html.br-image-page { padding: 0 ${d.mH}px !important; }
+html.br-image-page body { height: ${d.sh}px !important; margin: 0 !important; padding: 0 !important;
     display: flex !important; flex-direction: column; align-items: center; justify-content: center; }
-html.br-image-page body > * { margin: 0 !important; max-height: ${pageH}px; max-width: 100%; }
-html.br-image-page svg { height: ${pageH}px !important; width: 100% !important; }
-html.br-page-mode body { break-inside: avoid; }
+html.br-image-page body > * { margin: 0 !important; max-height: ${maxH}px; max-width: 100%; }
+html.br-image-page svg { height: ${maxH}px !important; width: 100% !important; }
 ${font ? `body, body *:not(pre):not(code):not(kbd):not(samp):not(tt):not(math):not(math *):not(svg *) { font-family: ${font} !important; }` : ''}
 ${lh ? `body, body p, body div, body li, body span, body blockquote, body dd, body a { line-height: ${lh} !important; }` : ''}
 ${s.align === 'justify' ? `${alignSel} { text-align: justify !important; }` : s.align === 'left' ? `${alignSel} { text-align: start !important; }` : ''}
@@ -190,8 +190,8 @@ const waitForImages = async doc => {
     ])
 }
 
-// Fonts named "@…" (e.g. "@MS Mincho") are Windows' rotated variants for vertical text. Pages
-// are always laid out horizontally, where they space and rotate characters oddly, so use the
+// Fonts named "@…" (e.g. "@MS Mincho") are Windows' rotated variants for vertical text. Text
+// is always laid out horizontally, where they space and rotate characters oddly, so use the
 // same font without the "@" (the normal, horizontal MS Mincho/Gothic) instead.
 const stripVerticalFonts = doc => {
     const fix = family => family.replace(/(^|,)(\s*["']?)@/g, '$1$2')
@@ -238,13 +238,10 @@ export const tightenPunctuation = root => {
     for (const node of trailing) node.data = node.data.replace(/[ \t\r\n]+$/, '')
 }
 
-/**
- * Lays out a reflowable document for the given dimensions; returns the number of pages
- * (columns) and views (screens).
- */
-export const layoutFlow = async (doc, d, s, book) => {
+/** Lays out a reflowable document for the given dimensions; returns its height in px. */
+export const layoutFlow = async (doc, d, s) => {
     const html = doc.documentElement
-    if (!doc.body) return { pages: 1, views: 1 }
+    if (!doc.body) return 1
     let style = doc.getElementById('br-style')
     if (!style) {
         // The text direction the book itself asks for (Arabic, Hebrew…), read before our
@@ -253,7 +250,7 @@ export const layoutFlow = async (doc, d, s, book) => {
         doc.brTextDir = doc.defaultView.getComputedStyle(doc.body).direction
         stripVerticalFonts(doc)
         tightenPunctuation(doc.body)
-        style =doc.createElementNS('http://www.w3.org/1999/xhtml', 'style')
+        style = doc.createElementNS('http://www.w3.org/1999/xhtml', 'style')
         style.id = 'br-style'
             ; (doc.head ?? html).append(style)
     }
@@ -270,11 +267,8 @@ export const layoutFlow = async (doc, d, s, book) => {
     await waitForImages(doc)
     try { await doc.fonts?.ready } catch {}
 
-    // Reset previous fitting.
     for (const el of doc.querySelectorAll('[data-br-zoom]')) { el.style.removeProperty('zoom'); el.removeAttribute('data-br-zoom') }
-    for (const el of doc.querySelectorAll('[data-br-atomic]')) el.removeAttribute('data-br-atomic')
-    html.classList.remove('br-page-mode', 'br-image-page')
-    doc.body.style.removeProperty('zoom')
+    html.classList.remove('br-image-page')
     applyTextSize(doc, s)
 
     const t = THEMES[s.theme] ?? THEMES.light
@@ -283,72 +277,34 @@ export const layoutFlow = async (doc, d, s, book) => {
         else img.removeAttribute('data-br-imgbg')
     }
 
-    const pageH = d.H - 2 * d.mV - 2
-    const pageW = d.cw
-    html.classList.add('br-measure')
     const body = doc.body
     const textLength = body.textContent.replace(/\s+/g, '').length
-    const visuals = body.querySelectorAll('img, svg, video, canvas')
-
-    if (textLength < 30 && visuals.length === 1) {
-        // A page that is just a picture (cover, plate): centre it on its own page.
-        // Shown across the whole screen, even in two-page mode.
-        html.classList.remove('br-measure')
+    if (textLength < 30 && body.querySelectorAll('img, svg, video, canvas').length === 1) {
+        // A section that is just a picture (cover, plate) gets one screen, centred.
         html.classList.add('br-image-page')
-        return { pages: d.n, views: 1 }
     } else {
-        const bodyRect = body.getBoundingClientRect()
-        const units = visualUnits(doc)
-        const hasVisual = units.length > 0
-        const bodyH = body.scrollHeight
-        const pageScale = Math.min(pageH / bodyH, pageW / Math.max(bodyRect.width, body.scrollWidth))
-        if (hasVisual && bodyH > pageH && pageScale >= 0.62) {
-            // Short section of charts/tables with notes: keep its construction on one page.
-            body.style.setProperty('zoom', pageScale.toFixed(4), 'important')
-            body.setAttribute('data-br-zoom', '')
-            html.classList.add('br-page-mode')
-        } else {
-            const measured = units.map(el => {
-                const r = el.getBoundingClientRect()
-                return { el, h: r.height, w: Math.max(r.width, el.scrollWidth) }
-            })
-            for (const { el, h, w } of measured) {
-                if (h < 4) continue
-                const tableLike = el.matches(TABLE_LIKE) || !!el.querySelector('table')
-                const minScale = tableLike ? 0.55 : 0.3
-                const scale = Math.min(1, pageH / h, pageW / w)
-                if (scale > 0.995) el.setAttribute('data-br-atomic', '')
-                else if (scale >= minScale) {
-                    el.style.setProperty('zoom', scale.toFixed(4), 'important')
-                    el.setAttribute('data-br-zoom', '')
-                    el.setAttribute('data-br-atomic', '')
-                } else if (pageW / w < 0.995) {
-                    // Too tall to shrink onto one page: let it break, but make it fit the width.
-                    el.style.setProperty('zoom', Math.max(pageW / w, minScale).toFixed(4), 'important')
-                    el.setAttribute('data-br-zoom', '')
-                }
-            }
+        // Figures and tables wider than the text column are scaled down to fit it.
+        for (const el of visualUnits(doc)) {
+            const w = Math.max(el.getBoundingClientRect().width, el.scrollWidth)
+            if (w <= d.cw + 1) continue
+            const minScale = el.matches(TABLE_LIKE) || el.querySelector('table') ? 0.55 : 0.3
+            el.style.setProperty('zoom', Math.max(d.cw / w, minScale).toFixed(4), 'important')
+            el.setAttribute('data-br-zoom', '')
         }
-        html.classList.remove('br-measure')
     }
-    return countPages(doc, d)
+    return measureFlow(doc)
 }
 
-const countPages = (doc, d) => {
+const measureFlow = doc => {
+    const html = doc.documentElement
+    const win = doc.defaultView
+    if (html.classList.contains('br-image-page')) return Math.ceil(html.getBoundingClientRect().height)
     const end = doc.getElementById('br-end')
-    const colW = d.cw + 2 * d.mH
-    let right = end.getBoundingClientRect().left
-    // The end marker can sit at the top of an empty column; use the real content edge when
-    // the last child ends earlier.
-    const last = end.previousElementSibling
-    if (last) {
-        const rects = last.getClientRects()
-        const lr = rects[rects.length - 1]
-        if (lr && lr.width && lr.right < right) right = Math.max(lr.left, lr.right - 1)
-    }
-    const col = Math.max(0, Math.floor((right - d.mH + 1) / colW))
-    const pages = col + 1
-    return { pages, views: Math.ceil(pages / d.n) }
+    if (!end || !doc.body) return Math.max(1, Math.ceil(html.getBoundingClientRect().height))
+    const bottom = end.getBoundingClientRect().bottom + win.scrollY
+        + (parseFloat(win.getComputedStyle(doc.body).marginBottom) || 0)
+        + (parseFloat(win.getComputedStyle(html).paddingBottom) || 0)
+    return Math.max(1, Math.ceil(bottom))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -372,299 +328,623 @@ const resolvePath = (root, path) => {
     return n
 }
 
+// Top of an anchor target inside a document (element, range or nothing).
+const topOf = (doc, target) => {
+    const win = doc.defaultView
+    if (!target || typeof target === 'number') return 0
+    if (target instanceof win.Range) {
+        const r = target.getClientRects()[0] ?? target.getBoundingClientRect()
+        return r.top + win.scrollY
+    }
+    // Elements without a box of their own (display: none, empty) use the next thing that has one.
+    for (let el = target; el; el = el.nextElementSibling ?? el.parentElement) {
+        const r = el.getClientRects()[0]
+        if (r) return r.top + win.scrollY
+        if (el === doc.body) break
+    }
+    return 0
+}
+
 // ---------------------------------------------------------------------------------------------
 
 export class Paginator extends EventTarget {
     #stage
+    #scroller
     #settings
-    #display = null
-    #token = 0
     #dims
-    #counts = []
-    #counterGen = 0
-    #counterTimer
+    #blocks = []
+    #blockOf = new Map()
+    #tops = null
+    #pages = null
+    #original = false
+    #targets = new Map()
+    #gen = 0
+    #measureGen = 0
+    #navToken = 0
+    #measureTimer
     #resizeTimer
-    #textNodes = null
-    #pendingNav = null
-    #navigating = false
+    #updateQueued = false
+    #keyTarget = null
+    #ready
     book
-    view = 0
 
     constructor(stage, book, settings) {
         super()
         this.#stage = stage
         this.book = book
         this.#settings = settings
+        this.#scroller = document.createElement('div')
+        this.#scroller.className = 'scroller'
+        stage.append(this.#scroller)
         this.#dims = this.#computeDims()
-        this.#counts = new Array(book.sections.length).fill(null)
+
+        // Non-linear sections (pop-up notes, alternative covers) are not part of the strip.
+        let order = book.sections.map((_, i) => i).filter(i => book.sections[i].linear !== 'no')
+        if (!order.length) order = book.sections.map((_, i) => i)
+        for (const i of order) {
+            const el = document.createElement('div')
+            el.className = 'block'
+            this.#scroller.append(el)
+            const b = { i, el, h: 0, measured: false, markers: null, live: null, loading: null }
+            this.#blocks.push(b)
+            this.#blockOf.set(i, b)
+        }
+        this.#estimateAll()
+        this.#ready = this.#findOriginalPages().then(() => this.#estimateAll())
+
+        this.#scroller.addEventListener('scroll', () => this.#queueUpdate(), { passive: true })
         this.resizeObserver = new ResizeObserver(() => {
             clearTimeout(this.#resizeTimer)
-            this.#resizeTimer = setTimeout(() => this.relayout(), 120)
+            this.#resizeTimer = setTimeout(() => this.relayout(), 150)
         })
         this.resizeObserver.observe(stage)
     }
-
-    get index() { return this.#display?.index ?? -1 }
-    get display() { return this.#display }
-    get counts() { return this.#counts }
 
     #computeDims() {
         const s = this.#settings
         const rect = this.#stage.getBoundingClientRect()
         const sw = Math.max(200, rect.width), sh = Math.max(200, rect.height)
-        const W = sw, H = sh
-        const mV = Math.min(s.marginV, H * 0.2)
-        // Side margins are a percentage of each page's width, so they scale with the screen.
+        // Side margins are a percentage of the width, so they scale with the screen; the text
+        // column stays at least 260 CSS px wide.
         const pct = (MARGIN_SIZES[s.marginSize] ?? MARGIN_SIZES[1]).share
-        const n = s.spread === 'double' ? 2 : s.spread === 'single' ? 1
-            : (sw >= 900 && sw / sh > 1.15 && (W / 2) * (1 - 2 * pct) >= 340) ? 2 : 1
-        let mH = pct * W / n
-        if (n === 2) mH = Math.max(mH, 14)
-        // Wide margins are fine as long as a column stays readable (≥ 260 CSS px).
-        mH = Math.max(0, Math.min(mH, (W / n - 260) / 2))
-        const cw = (W - 2 * n * mH) / n
-        return { sw, sh, W, H, mH, mV, n, cw }
+        const mH = Math.max(0, Math.min(pct * sw, (sw - 260) / 2))
+        const gap = Math.round(Math.min(40, sh * 0.05))
+        return { sw, sh, W: sw, mH, cw: sw - 2 * mH, gap }
+    }
+
+    // --- the book's own pages ---------------------------------------------------------------------
+
+    // PDFs always have their pages; EPUBs may have a page list (the printed edition's pages).
+    async #findOriginalPages() {
+        const book = this.book
+        if (book.pdf) {
+            for (const b of this.#blocks) {
+                const s = book.sections[b.i]
+                const ns = s.render ? [s.pdfPage] : s.pages ?? []
+                this.#targets.set(b.i, ns.map(n => ({
+                    label: String(n),
+                    anchor: s.render ? null : doc => doc.getElementById(`pdf-p${n}`),
+                })))
+            }
+            this.#original = true
+            return
+        }
+        if (!book.pageList?.length) return
+        for (const item of book.pageList) {
+            try {
+                const r = item.href ? await book.resolveHref(item.href) : null
+                if (!r || !this.#blockOf.has(r.index)) continue
+                const list = this.#targets.get(r.index) ?? []
+                list.push({ label: (item.label ?? '').trim(), anchor: r.anchor ?? null })
+                this.#targets.set(r.index, list)
+            } catch {}
+        }
+        this.#original = this.#targets.size > 0
+        this.#pages = null
+    }
+
+    #findMarkers(b, doc) {
+        if (!this.#original) return null
+        const markers = []
+        for (const t of this.#targets.get(b.i) ?? []) {
+            let y = 0
+            if (doc && t.anchor) {
+                try { y = topOf(doc, t.anchor(doc)) } catch {}
+            }
+            markers.push({ y: Math.max(0, Math.round(y)), label: t.label })
+        }
+        return markers.sort((a, b) => a.y - b.y)
+    }
+
+    // Until a block is measured its pages are spread evenly over its estimated height.
+    #estimatedMarkers(b) {
+        const list = this.#targets.get(b.i) ?? []
+        const fixed = this.#isFixed(b)
+        return list.map((t, k) => ({ y: fixed ? 0 : Math.round(b.h * k / list.length), label: t.label }))
+    }
+
+    // --- sizes --------------------------------------------------------------------------------
+
+    #isFixed(b) {
+        const s = this.book.sections[b.i]
+        return !!(s.render || s.fixed)
+    }
+
+    // Original pages are fitted to the text column's width, but never so large that one page is
+    // much taller than the screen.
+    #fixedSize(b) {
+        const s = this.book.sections[b.i]
+        const vp = this.book.rendition?.viewport
+        const aspect = b.aspect ?? (s.width && s.height ? s.width / s.height
+            : vp?.width && vp?.height ? vp.width / vp.height : 0.7)
+        const { cw, sh } = this.#dims
+        const w = Math.floor(Math.min(cw, sh * 1.25 * aspect))
+        return { w, h: Math.ceil(w / aspect), known: !!(b.aspect || (s.width && s.height) || (vp?.width && vp?.height)) }
+    }
+
+    // Height per byte of the blocks measured so far, used for the ones that are not yet.
+    #ratio() {
+        let bytes = 0, px = 0
+        for (const b of this.#blocks) {
+            if (!b.measured || this.#isFixed(b)) continue
+            bytes += Math.max(1, this.book.sections[b.i].size ?? 1)
+            px += b.h
+        }
+        return bytes > 20000 ? px / bytes : 250 / this.#dims.cw
+    }
+
+    #estimateAll() {
+        const ratio = this.#ratio()
+        for (const b of this.#blocks) {
+            if (b.measured) continue
+            if (this.#isFixed(b)) {
+                const { h, known } = this.#fixedSize(b)
+                if (known) this.#setMeasured(b, h, this.#findMarkers(b, null))
+                else this.#setHeight(b, h)
+            } else {
+                const size = Math.max(1, this.book.sections[b.i].size ?? 1)
+                this.#setHeight(b, Math.max(40, Math.round(size * ratio)))
+            }
+        }
+    }
+
+    #setHeight(b, h) {
+        h = Math.max(1, Math.round(h))
+        if (h === b.h) return
+        b.h = h
+        b.el.style.height = `${h}px`
+        if (b.live?.iframe) b.live.iframe.style.height = `${h}px`
+        this.#tops = null
+        this.#pages = null
+    }
+
+    #setMeasured(b, h, markers) {
+        b.measured = true
+        b.markers = markers
+        this.#pages = null
+        // A change in a block above the screen is compensated by scroll anchoring, so the text
+        // being read does not move.
+        if (Math.abs(h - b.h) > 1) this.#setHeight(b, h)
+    }
+
+    #getTops() {
+        if (!this.#tops) {
+            let acc = 0
+            this.#tops = this.#blocks.map(b => { const t = acc; acc += b.h; return t })
+            this.#tops.total = acc
+        }
+        return this.#tops
+    }
+
+    // --- page map -----------------------------------------------------------------------------
+
+    #getPages() {
+        if (this.#pages) return this.#pages
+        const tops = this.#getTops()
+        const P = this.#dims.sh
+        let pages = []
+        this.#blocks.forEach((b, bi) => {
+            if (this.#original) {
+                const markers = b.markers ?? this.#estimatedMarkers(b)
+                markers.forEach((m, k) => pages.push({ top: tops[bi] + Math.min(m.y, b.h - 1), label: m.label, b: bi, k }))
+            } else {
+                // One screen per page; a sliver of a few px at the end doesn't make a new one.
+                const n = Math.max(1, Math.ceil((b.h - 4) / P))
+                for (let j = 0; j < n; j++) pages.push({ top: tops[bi] + j * P, label: null, b: bi, k: j })
+            }
+        })
+        pages.sort((a, b) => a.top - b.top)
+        // Anything before the book's first numbered page (a cover, say) is a page of its own.
+        if (!pages.length || pages[0].top > 0) pages.unshift({ top: 0, label: '', b: 0, k: -1 })
+        if (!this.#original) pages.forEach((p, n) => { p.label = String(n + 1) })
+        this.#pages = pages
+        return pages
+    }
+
+    #pageIndexAt(y) {
+        const pages = this.#getPages()
+        let lo = 0, hi = pages.length - 1
+        while (lo < hi) {
+            const mid = (lo + hi + 1) >> 1
+            if (pages[mid].top <= y) lo = mid
+            else hi = mid - 1
+        }
+        return lo
+    }
+
+    #blockIndexAt(y) {
+        const tops = this.#getTops()
+        let lo = 0, hi = this.#blocks.length - 1
+        while (lo < hi) {
+            const mid = (lo + hi + 1) >> 1
+            if (tops[mid] <= y) lo = mid
+            else hi = mid - 1
+        }
+        return lo
+    }
+
+    #blockFor(index) {
+        if (this.#blockOf.has(index)) return this.#blockOf.get(index)
+        return this.#blocks.find(b => b.i >= index) ?? this.#blocks[this.#blocks.length - 1]
+    }
+
+    // --- position (derived from the scroll position) -------------------------------------------
+
+    get scrollY() { return this.#scroller.scrollTop }
+
+    progress() {
+        if (!this.#blocks.length) return null
+        const pages = this.#getPages()
+        const tops = this.#getTops()
+        const y = this.#scroller.scrollTop
+        const k = this.#pageIndexAt(y + 1)
+        const page = pages[k]
+        const nextTop = pages[k + 1]?.top ?? tops.total
+        const b = this.#blocks[this.#blockIndexAt(y + 1)]
+        return {
+            index: b.i,
+            page: k,
+            label: page.label,
+            pages: pages.length,
+            lastLabel: pages[pages.length - 1].label,
+            // The book's own page numbers are known up front; screen pages only once measured.
+            exact: this.#original || this.#blocks.every(b => b.measured),
+            original: this.#original,
+            fraction: pages.length > 1 ? k / (pages.length - 1) : 0,
+            // Where on the current page the screen is: px from the page's top, and its height.
+            pageOffset: Math.max(0, y - page.top),
+            pageHeight: Math.max(1, nextTop - page.top),
+            atEnd: y + this.#dims.sh >= tops.total - 2,
+        }
+    }
+
+    pageLabel(k) { return this.#getPages()[k]?.label ?? '' }
+
+    /** The page a saved location falls on (for the "back to page" marker). */
+    locate(loc) {
+        if (!loc) return null
+        const b = this.#blockFor(loc.index)
+        const bi = this.#blocks.indexOf(b)
+        let y = (loc.sectionFraction ?? 0) * b.h
+        if (b.live?.doc && loc.path) y = this.#yOfPath(b, loc.path, loc.offset) + (loc.dy ?? 0)
+        const k = this.#pageIndexAt(this.#getTops()[bi] + y + 1)
+        const pages = this.#getPages()
+        return { page: k, label: pages[k].label, fraction: pages.length > 1 ? k / (pages.length - 1) : 0 }
+    }
+
+    /** Position of a TOC entry in the strip (exact once its section is loaded). */
+    positionOf(index, anchor) {
+        const b = this.#blockOf.get(index)
+        if (!b) return null
+        let y = this.#getTops()[this.#blocks.indexOf(b)]
+        if (anchor && b.live?.doc) {
+            try { y += topOf(b.live.doc, anchor(b.live.doc)) } catch {}
+        }
+        return y
+    }
+
+    /** A location that survives re-layout and is stored with the book. */
+    getLocation() {
+        if (!this.#blocks.length) return null
+        const y = this.#scroller.scrollTop
+        const bi = this.#blockIndexAt(y + 1)
+        const b = this.#blocks[bi]
+        const yIn = y - this.#getTops()[bi]
+        const p = this.progress()
+        const loc = { index: b.i, fraction: p.fraction, sectionFraction: b.h ? yIn / b.h : 0 }
+        if (b.live?.doc) {
+            const pos = this.#textAt(b, yIn)
+            if (pos) {
+                loc.path = nodePath(b.live.doc.body, pos.node)
+                loc.offset = pos.offset
+                // How far above the screen's top edge that character starts, to restore it exactly.
+                loc.dy = Math.round(yIn - pos.top)
+            }
+        }
+        if (this.book.pdf) loc.pdfPage = Number(p.label) || this.book.sections[b.i].pages?.[0] || this.book.sections[b.i].pdfPage
+        return loc
+    }
+
+    /** Size (pt) of the current section's main text before any text size setting. */
+    baseTextSize() {
+        const y = this.#scroller.scrollTop
+        const b = this.#blocks[this.#blockIndexAt(y + 1)]
+        return b?.live?.doc?.brBaseTextSize ?? this.#blocks.find(b => b.live?.doc)?.live.doc.brBaseTextSize ?? null
+    }
+
+    // First character whose line reaches below `yIn` (binary search over text nodes).
+    #textAt(b, yIn) {
+        const doc = b.live.doc
+        if (!b.live.textNodes) {
+            const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT,
+                { acceptNode: n => n.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT })
+            const nodes = []
+            while (walker.nextNode()) nodes.push(walker.currentNode)
+            b.live.textNodes = nodes
+        }
+        const nodes = b.live.textNodes
+        if (!nodes.length) return null
+        const sy = doc.defaultView.scrollY
+        const range = doc.createRange()
+        const bottomOf = node => {
+            range.selectNodeContents(node)
+            const rects = range.getClientRects()
+            return rects.length ? rects[rects.length - 1].bottom + sy : -Infinity
+        }
+        let lo = 0, hi = nodes.length - 1, found = -1
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1
+            if (bottomOf(nodes[mid]) > yIn) { found = mid; hi = mid - 1 } else lo = mid + 1
+        }
+        if (found < 0) return null
+        const node = nodes[found]
+        let a = 0, z = node.length - 1, offset = 0, top = null
+        while (a <= z) {
+            const mid = (a + z) >> 1
+            range.setStart(node, mid)
+            range.setEnd(node, mid + 1)
+            const r = range.getClientRects()[0]
+            if (!r || r.bottom + sy > yIn) { offset = mid; if (r) top = r.top + sy; z = mid - 1 } else a = mid + 1
+        }
+        if (top == null) {
+            range.setStart(node, offset)
+            range.setEnd(node, Math.min(offset + 1, node.length))
+            top = (range.getClientRects()[0]?.top ?? yIn) + sy
+        }
+        return { node, offset, top }
+    }
+
+    #yOfPath(b, path, offset) {
+        const doc = b.live?.doc
+        if (!doc) return 0
+        const node = resolvePath(doc.body, path)
+        try {
+            const range = doc.createRange()
+            if (node.nodeType === 3) {
+                const o = Math.min(offset ?? 0, Math.max(0, node.length - 1))
+                range.setStart(node, o)
+                range.setEnd(node, Math.min(o + 1, node.length))
+            } else range.selectNode(node)
+            return topOf(doc, range)
+        } catch { return 0 }
     }
 
     // --- navigation ---------------------------------------------------------------------------
 
-    isFixed(i) {
-        const s = this.book.sections[i]
-        return !!(s && (s.render || s.fixed))
-    }
-    isLinear(i) { return this.book.sections[i] && this.book.sections[i].linear !== 'no' }
-
-    #fixedGroup(i) {
-        if (this.#dims.n !== 2) return [i]
-        let start = i
-        while (start > 0 && this.isFixed(start - 1)) start--
-        const offset = i - start
-        let first
-        if (start === 0) first = offset === 0 ? 0 : 1 + Math.floor((offset - 1) / 2) * 2
-        else first = start + Math.floor(offset / 2) * 2
-        if (start === 0 && first === 0) return [0]
-        return this.isFixed(first + 1) && first + 1 < this.book.sections.length ? [first, first + 1] : [first]
-    }
-
-    #nextIndex(from) {
-        for (let i = from + 1; i < this.book.sections.length; i++) if (this.isLinear(i)) return i
-        return null
-    }
-    #prevIndex(from) {
-        for (let i = from - 1; i >= 0; i--) if (this.isLinear(i)) return i
-        return null
+    // Every jump resolves its target to a position in the strip only after the target block is
+    // loaded and measured, then sets the scroll position once. Only the latest jump wins.
+    async #navigate(resolve) {
+        await this.#ready
+        const token = ++this.#navToken
+        const slow = setTimeout(() => this.dispatchEvent(new CustomEvent('loading', { detail: true })), 250)
+        try {
+            const y = await resolve()
+            if (token !== this.#navToken || y == null) return
+            this.#keyTarget = null
+            this.#scroller.scrollTop = Math.round(y)
+            this.#update()
+        } catch (e) {
+            console.error(e)
+            this.dispatchEvent(new CustomEvent('error', { detail: e }))
+        } finally {
+            clearTimeout(slow)
+            this.dispatchEvent(new CustomEvent('loading', { detail: false }))
+            this.#scheduleMeasure()
+        }
     }
 
-    async next() {
-        const d = this.#display
-        if (!d) return
-        if (d.type === 'flow' && this.view < d.views - 1) return this.#setView(this.view + 1, 'next')
-        const i = this.#nextIndex(d.type === 'fixed' ? Math.max(...d.indices) : d.index)
-        if (i != null) return this.#navigate({ index: i, view: 0, dir: 'next' })
-    }
-
-    async prev() {
-        const d = this.#display
-        if (!d) return
-        if (d.type === 'flow' && this.view > 0) return this.#setView(this.view - 1, 'prev')
-        const i = this.#prevIndex(d.type === 'fixed' ? Math.min(...d.indices) : d.index)
-        if (i != null) return this.#navigate({ index: i, end: true, dir: 'prev' })
-    }
-
-    async goTo(target) {
-        return this.#navigate(target)
+    /**
+     * Jump to a location: { index } plus one of anchor, path/offset/dy, sectionFraction,
+     * or end: true.
+     */
+    goTo(target) {
+        return this.#navigate(async () => {
+            if (target.end) {
+                const last = this.#blocks[this.#blocks.length - 1]
+                await this.#load(last)
+                return Math.max(0, this.#getTops().total - this.#dims.sh)
+            }
+            const b = this.#blockFor(target.index ?? 0)
+            await this.#load(b)
+            const top = this.#getTops()[this.#blocks.indexOf(b)]
+            if (target.anchor && b.live?.doc) {
+                const el = await (typeof target.anchor === 'function' ? target.anchor(b.live.doc) : target.anchor)
+                return top + topOf(b.live.doc, el)
+            }
+            if (target.path && b.live?.doc) return top + this.#yOfPath(b, target.path, target.offset) + (target.dy ?? 0)
+            if (target.sectionFraction != null) return top + target.sectionFraction * b.h
+            return top
+        })
     }
 
     async goToHref(href) {
         const resolved = await this.book.resolveHref?.(href)
         if (!resolved || resolved.index == null || resolved.index < 0) return false
-        await this.#navigate({ index: resolved.index, anchor: resolved.anchor })
+        await this.goTo({ index: resolved.index, anchor: resolved.anchor })
         return true
     }
 
-    async goToFraction(fraction) {
-        const { index, within } = this.#sectionAtFraction(fraction)
-        return this.#navigate({ index, fraction: within })
+    /** Jump to the top of page k of the page map (the scroller snaps to pages). */
+    goToPage(k) {
+        const pages = this.#getPages()
+        const page = pages[Math.max(0, Math.min(pages.length - 1, k))]
+        return this.#navigate(async () => {
+            const b = this.#blocks[page.b]
+            await this.#load(b)
+            // Loading may have measured the block, which moves its pages; find the same one again.
+            const fresh = this.#getPages()
+            const same = fresh.find(p => p.b === page.b && p.k === page.k)
+                ?? fresh.filter(p => p.b === page.b).pop()
+            return same ? same.top : this.#getTops()[page.b]
+        })
     }
 
-    // Serialises navigations: only the latest pending one runs after the current finishes.
-    async #navigate(target) {
-        this.#pendingNav = target
-        if (this.#navigating) return
-        this.#navigating = true
-        try {
-            while (this.#pendingNav) {
-                const t = this.#pendingNav
-                this.#pendingNav = null
-                await this.#show(t)
-            }
-        } finally {
-            this.#navigating = false
-        }
+    next() {
+        const p = this.progress()
+        if (p) return this.goToPage(p.page + 1)
     }
 
-    async #show(target) {
-        const token = ++this.#token
-        const dims = this.#dims
-        let index = Math.max(0, Math.min(this.book.sections.length - 1, target.index ?? 0))
-        const cur = this.#display
-        const alreadyShown = cur && (cur.type === 'flow' ? cur.index === index : cur.indices.includes(index))
-            && cur.dims === dims
-        let display = cur
-        if (!alreadyShown) {
-            this.dispatchEvent(new CustomEvent('loading', { detail: true }))
+    prev() {
+        const p = this.progress()
+        if (p) return this.goToPage(p.pageOffset > 2 ? p.page : p.page - 1)
+    }
+
+    /**
+     * Smooth scrolling by keyboard. Repeated presses move one target further instead of
+     * restarting, and scrolling any other way (wheel, touch, a jump) takes over at once.
+     */
+    scrollStep(dy) {
+        const s = this.#scroller
+        const max = s.scrollHeight - s.clientHeight
+        const a = this.#keyTarget
+        const to = Math.max(0, Math.min(max, (a ? a.target : s.scrollTop) + dy))
+        if (matchMedia('(prefers-reduced-motion: reduce)').matches) { s.scrollTop = to; return }
+        if (a) { a.target = to; return }
+        this.#keyTarget = { target: to, expected: s.scrollTop, last: performance.now() }
+        this.#animate()
+    }
+
+    #animate() {
+        const a = this.#keyTarget, s = this.#scroller
+        if (!a) return
+        // Someone else moved the strip: stop rather than fight them.
+        if (Math.abs(s.scrollTop - a.expected) > 2) { this.#keyTarget = null; return }
+        const now = performance.now()
+        const dt = Math.min(64, now - a.last)
+        a.last = now
+        const diff = a.target - s.scrollTop
+        if (Math.abs(diff) < 1) { this.#keyTarget = null; return }
+        // Ease out: each frame covers a share of what is left (about 90% in 140 ms).
+        let step = diff * (1 - Math.exp(-dt / 60))
+        if (Math.abs(step) < 1) step = Math.sign(diff) * Math.min(1, Math.abs(diff))
+        s.scrollTop += step
+        a.expected = s.scrollTop
+        nextFrame(() => this.#animate())
+    }
+    scrollLines(n) { this.scrollStep(n * Math.round(this.#dims.sh * 0.12)) }
+    scrollScreens(n) { this.scrollStep(n * Math.round(this.#dims.sh * 0.88)) }
+
+    // --- loading blocks near the screen ---------------------------------------------------------
+
+    #queueUpdate() {
+        if (this.#updateQueued) return
+        this.#updateQueued = true
+        nextFrame(() => {
+            this.#updateQueued = false
+            this.#update()
+        })
+    }
+
+    #update() {
+        if (!this.#blocks.length) return
+        const tops = this.#getTops()
+        const y = this.#scroller.scrollTop, sh = this.#dims.sh
+        const near = [], far = []
+        this.#blocks.forEach((b, bi) => {
+            const top = tops[bi], bottom = top + b.h
+            if (bottom > y - sh * 1.5 && top < y + sh * 2.5) near.push(b)
+            else if ((bottom < y - sh * 10 || top > y + sh * 12) && (b.live || b.loading)) far.push(b)
+        })
+        const mid = y + sh / 2
+        near.sort((a, b) => Math.abs(tops[this.#blocks.indexOf(a)] - mid) - Math.abs(tops[this.#blocks.indexOf(b)] - mid))
+        for (const b of near) this.#load(b)
+        for (const b of far) this.#unload(b)
+        this.dispatchEvent(new CustomEvent('relocate', { detail: this.progress() }))
+    }
+
+    #load(b) {
+        if (b.live) return Promise.resolve()
+        if (b.loading) return b.loading
+        const gen = this.#gen
+        const loading = (async () => {
             try {
-                display = this.isFixed(index)
-                    ? await this.#createFixed(this.#fixedGroup(index), dims)
-                    : await this.#createFlow(index, dims)
+                if (this.#isFixed(b)) await this.#loadFixed(b, gen)
+                else await this.#loadFlow(b, gen)
             } catch (e) {
                 console.error(e)
-                this.dispatchEvent(new CustomEvent('loading', { detail: false }))
                 this.dispatchEvent(new CustomEvent('error', { detail: e }))
-                // Skip an unreadable section instead of getting stuck on it.
-                if (token === this.#token) {
-                    const next = target.end ? this.#prevIndex(index) : this.#nextIndex(index)
-                    if (next != null && next !== index) return this.#show({ ...target, index: next })
-                }
-                return
             }
-            this.dispatchEvent(new CustomEvent('loading', { detail: false }))
-            if (token !== this.#token) { display.destroy(); return }
-        }
-        let view = 0
-        if (display.type === 'flow') {
-            if (target.end) view = display.views - 1
-            else if (target.anchor) view = await this.#viewOfAnchor(display, target.anchor)
-            else if (target.path) view = this.#viewOfPath(display, target.path, target.offset)
-            else if (target.fraction != null) view = Math.min(display.views - 1, Math.floor(target.fraction * display.views))
-            else if (target.view != null) view = Math.min(display.views - 1, target.view)
-            if (target.view === 'last') view = display.views - 1
-        }
-        this.#turn(target.dir, () => {
-            if (display !== cur) {
-                this.#textNodes = null
-                display.layer.style.visibility = ''
-                if (!target.dir) display.layer.classList.add('fade-in')
-                this.#display = display
-                if (cur) cur.destroy()
-                if (display.type === 'flow') this.#counts[display.index] = display.pages
-            }
-            this.#setView(view)
-        })
-        this.#prefetch()
-        this.#scheduleCount()
+        })()
+        b.loading = loading
+        // A load that was abandoned (unloaded, or a relayout started) must not clear a newer one.
+        loading.finally(() => { if (b.loading === loading) b.loading = null })
+        return loading
     }
 
-    // Page turns slide vertically: the page moves up and out while the next one comes up from
-    // below (the other way round going back). A View Transition snapshots the screen before and
-    // after the change, book frames included, and animates between the two.
-    #turn(dir, update) {
-        if (!dir || !this.#settings.animate || !document.startViewTransition) return update()
-        document.documentElement.dataset.turn = dir
-        document.startViewTransition(update)
-    }
-
-    #setView(view, dir) {
-        const d = this.#display
-        if (!d) return
-        const apply = () => {
-            this.view = Math.max(0, Math.min(view, (d.views ?? 1) - 1))
-            if (d.type === 'flow') d.iframe.style.transform = `translateX(${-this.view * d.dims.W}px)`
-            this.dispatchEvent(new CustomEvent('relocate', { detail: this.progress() }))
-        }
-        if (dir) this.#turn(dir, apply)
-        else apply()
-    }
-
-    #prefetch() {
-        const d = this.#display
-        const nextI = this.#nextIndex(d.type === 'fixed' ? Math.max(...d.indices) : d.index)
-        for (const i of [nextI, this.#prevIndex(d.type === 'fixed' ? Math.min(...d.indices) : d.index)]) {
-            if (i == null) continue
-            const s = this.book.sections[i]
-            if (s.prefetch) {
-                const { w, h } = this.#fixedPageBox(this.#fixedGroup(i).length)
-                s.prefetch(w, h)
-            } else Promise.resolve().then(() => s.load?.()).catch(() => {})
-        }
-    }
-
-    // --- displays -----------------------------------------------------------------------------
-
-    #makeLayer() {
-        const layer = document.createElement('div')
-        layer.className = 'page-layer'
-        layer.style.visibility = 'hidden'
-        this.#stage.append(layer)
-        return layer
-    }
-
-    async #createFlow(index, dims) {
-        const section = this.book.sections[index]
-        const url = await section.load()
-        const layer = this.#makeLayer()
+    async #loadFlow(b, gen) {
+        const url = await this.book.sections[b.i].load()
         const iframe = makeIframe()
-        iframe.style.width = `${dims.W}px`
-        iframe.style.height = `${dims.H}px`
-        layer.append(iframe)
-        try {
-            await loadIframe(iframe, url)
-            const doc = iframe.contentDocument
-            if (!doc?.documentElement) throw new Error('Section could not be loaded')
-            this.#setupDocument(doc, index)
-            const { pages, views } = await layoutFlow(doc, dims, this.#settings, this.book)
-            iframe.style.width = `${views * dims.W}px`
-            return {
-                type: 'flow', index, iframe, doc, layer, pages, views, dims,
-                destroy: () => layer.remove(),
+        iframe.style.width = `${this.#dims.W}px`
+        iframe.style.height = `${b.h}px`
+        iframe.style.visibility = 'hidden'
+        b.el.replaceChildren(iframe)
+        await loadIframe(iframe, url)
+        const stale = () => gen !== this.#gen || !iframe.isConnected
+        if (stale()) { iframe.remove(); return }
+        const doc = iframe.contentDocument
+        if (!doc?.documentElement) throw new Error('Section could not be loaded')
+        this.#setupDocument(doc, b.i)
+        const h = await layoutFlow(doc, this.#dims, this.#settings)
+        if (stale()) { iframe.remove(); return }
+        b.live = { iframe, doc, textNodes: null }
+        iframe.style.visibility = ''
+        iframe.style.height = `${h}px`
+        this.#setMeasured(b, h, this.#findMarkers(b, doc))
+        // Late changes (an image that finished loading after all, a web font) resize the block.
+        const ro = new doc.defaultView.ResizeObserver(() => {
+            if (b.live?.doc !== doc) return
+            const nh = measureFlow(doc)
+            if (Math.abs(nh - b.h) > 1) {
+                b.live.textNodes = null
+                this.#setMeasured(b, nh, this.#findMarkers(b, doc))
+                this.#queueUpdate()
             }
-        } catch (e) {
-            layer.remove()
-            throw e
-        }
+        })
+        ro.observe(doc.body)
+        b.live.ro = ro
+        this.#queueUpdate()
     }
 
-    #fixedPageBox(count) {
-        const d = this.#dims
-        const pad = Math.min(this.#settings.marginV, 24)
-        return { w: (d.sw - pad * 2) / count, h: d.sh - pad * 2 }
-    }
-
-    async #createFixed(indices, dims) {
-        const layer = this.#makeLayer()
+    async #loadFixed(b, gen) {
+        const section = this.book.sections[b.i]
+        const { w, h } = this.#fixedSize(b)
         const wrap = document.createElement('div')
         wrap.className = 'fixed-wrap'
-        layer.append(wrap)
-        const { w, h } = this.#fixedPageBox(indices.length)
+        b.el.replaceChildren(wrap)
+        const el = section.render ? await section.render(w, h) : await this.#renderFixedDoc(b, wrap, w)
+        if (gen !== this.#gen || !wrap.isConnected) return
         const t = THEMES[this.#settings.theme] ?? THEMES.light
-        try {
-            const els = await Promise.all(indices.map(async i => {
-                const section = this.book.sections[i]
-                const el = section.render ? await section.render(w, h) : await this.#renderFixedDoc(i, wrap, w, h)
-                const invert = t.dark && (this.#settings.invertFixed === 'always'
-                    || (this.#settings.invertFixed === 'auto' && section.imageRatio != null && section.imageRatio < 0.25))
-                el.classList.toggle('inverted', !!invert)
-                return el
-            }))
-            wrap.replaceChildren(...els)
-            // Two-page spread: pages meet at the spine.
-            if (els.length === 2) {
-                els[0].style.marginLeft = 'auto'
-                els[1].style.marginRight = 'auto'
-            }
-        } catch (e) {
-            layer.remove()
-            throw e
-        }
-        return {
-            type: 'fixed', index: indices[0], indices, layer, views: 1, pages: indices.length, dims,
-            destroy: () => layer.remove(),
-        }
+        const invert = t.dark && (this.#settings.invertFixed === 'always'
+            || (this.#settings.invertFixed === 'auto' && section.imageRatio != null && section.imageRatio < 0.25))
+        el.classList.toggle('inverted', !!invert)
+        wrap.replaceChildren(el)
+        b.live = { el, doc: el.querySelector('iframe')?.contentDocument ?? null, fixed: true }
+        this.#setMeasured(b, Math.ceil(parseFloat(el.style.height) || el.getBoundingClientRect().height || h), this.#findMarkers(b, null))
+        this.#queueUpdate()
     }
 
-    async #renderFixedDoc(index, wrap, maxW, maxH) {
-        const section = this.book.sections[index]
-        const url = await section.load()
+    async #renderFixedDoc(b, wrap, maxW) {
+        const url = await this.book.sections[b.i].load()
         const el = document.createElement('div')
         el.className = 'fixed-page'
         const iframe = makeIframe()
@@ -691,15 +971,24 @@ export class Paginator extends EventTarget {
         const svg = doc.querySelector('body > svg, body > div > svg')
         if ((!w || !h) && svg?.viewBox?.baseVal?.width) { w = svg.viewBox.baseVal.width; h = svg.viewBox.baseVal.height }
         if (!w || !h) { w = doc.documentElement.scrollWidth || 1000; h = doc.documentElement.scrollHeight || 1400 }
-        const scale = Math.min(maxW / w, maxH / h)
+        b.aspect = w / h
+        const fit = this.#fixedSize(b)
+        const scale = Math.min(maxW, fit.w) / w
         iframe.style.width = `${w}px`
         iframe.style.height = `${h}px`
         iframe.style.transform = `scale(${scale})`
         el.style.width = `${w * scale}px`
         el.style.height = `${h * scale}px`
         doc.documentElement.style.overflow = 'hidden'
-        this.#setupDocument(doc, index)
+        this.#setupDocument(doc, b.i)
         return el
+    }
+
+    #unload(b) {
+        b.live?.ro?.disconnect()
+        b.live = null
+        b.loading = null
+        b.el.replaceChildren()
     }
 
     #setupDocument(doc, index) {
@@ -709,9 +998,6 @@ export class Paginator extends EventTarget {
         else if (!html.lang && Array.isArray(lang) && lang[0]) html.lang = lang[0]
         doc.addEventListener('click', e => this.#onDocClick(e, doc, index))
         doc.addEventListener('keydown', e => this.dispatchEvent(new CustomEvent('doc-keydown', { detail: e })))
-        doc.addEventListener('wheel', e => this.dispatchEvent(new CustomEvent('doc-wheel', { detail: e })), { passive: false })
-        doc.addEventListener('touchstart', e => this.dispatchEvent(new CustomEvent('doc-touchstart', { detail: e })), { passive: true })
-        doc.addEventListener('touchend', e => this.dispatchEvent(new CustomEvent('doc-touchend', { detail: e })), { passive: true })
     }
 
     #onDocClick(e, doc, index) {
@@ -722,287 +1008,104 @@ export class Paginator extends EventTarget {
             return
         }
         if (doc.getSelection()?.toString()) return
-        // Translate to stage coordinates for tap zones.
-        const d = this.#display
-        let x = e.clientX, y = e.clientY
-        if (d?.type === 'flow' && d.doc === doc) {
-            x = e.clientX - this.view * d.dims.W
-        } else {
-            const frame = doc.defaultView.frameElement
-            const r = frame.getBoundingClientRect(), sr = this.#stage.getBoundingClientRect()
-            const scale = r.width / frame.offsetWidth
-            x = r.left - sr.left + e.clientX * scale
-            y = r.top - sr.top + e.clientY * scale
-        }
-        this.dispatchEvent(new CustomEvent('tap', { detail: { x, y, width: this.#dims.sw, height: this.#dims.sh } }))
-    }
-
-    // --- anchors ------------------------------------------------------------------------------
-
-    #viewOfX(d, x) {
-        return Math.max(0, Math.min(d.views - 1, Math.floor(x / d.dims.W)))
-    }
-
-    #viewOfRect(d, rects) {
-        for (const r of rects) if (r.width || r.height) return this.#viewOfX(d, r.left + 1)
-        return null
-    }
-
-    async #viewOfAnchor(d, anchor) {
-        try {
-            const target = await (typeof anchor === 'function' ? anchor(d.doc) : anchor)
-            if (!target) return 0
-            if (target instanceof d.doc.defaultView.Range) return this.#viewOfRect(d, target.getClientRects()) ?? 0
-            if (typeof target === 'number') return 0
-            for (let el = target; el; el = el.nextElementSibling ?? el.parentElement) {
-                const v = this.#viewOfRect(d, el.getClientRects())
-                if (v != null) return v
-                if (el === d.doc.body) break
-            }
-        } catch (e) { console.warn(e) }
-        return 0
-    }
-
-    #viewOfPath(d, path, offset) {
-        const node = resolvePath(d.doc.body, path)
-        try {
-            const range = d.doc.createRange()
-            if (node.nodeType === 3) {
-                const o = Math.min(offset ?? 0, node.length)
-                range.setStart(node, o)
-                range.setEnd(node, Math.min(o + 1, node.length))
-            } else range.selectNode(node)
-            return this.#viewOfRect(d, range.getClientRects()) ?? 0
-        } catch { return 0 }
-    }
-
-    // First text position visible in the current view (binary search over text nodes).
-    #firstVisible() {
-        const d = this.#display
-        if (d?.type !== 'flow') return null
-        if (!this.#textNodes) {
-            const walker = d.doc.createTreeWalker(d.doc.body, NodeFilter.SHOW_TEXT,
-                { acceptNode: n => n.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT })
-            const nodes = []
-            while (walker.nextNode()) nodes.push(walker.currentNode)
-            this.#textNodes = nodes
-        }
-        const nodes = this.#textNodes
-        const range = d.doc.createRange()
-        const endView = node => {
-            range.selectNodeContents(node)
-            const rects = range.getClientRects()
-            for (let i = rects.length - 1; i >= 0; i--) if (rects[i].width) return this.#viewOfX(d, rects[i].left + 1)
-            return -1
-        }
-        let lo = 0, hi = nodes.length - 1, found = -1
-        while (lo <= hi) {
-            const mid = (lo + hi) >> 1
-            if (endView(nodes[mid]) >= this.view) { found = mid; hi = mid - 1 } else lo = mid + 1
-        }
-        if (found < 0) return null
-        const node = nodes[found]
-        // Find the first character of that node in this view.
-        let a = 0, b = node.length - 1, offset = 0
-        while (a <= b) {
-            const mid = (a + b) >> 1
-            range.setStart(node, mid)
-            range.setEnd(node, mid + 1)
-            const r = range.getClientRects()[0]
-            const v = r ? this.#viewOfX(d, r.left + 1) : this.view
-            if (v >= this.view) { offset = mid; b = mid - 1 } else a = mid + 1
-        }
-        return { node, offset }
-    }
-
-    // --- progress -----------------------------------------------------------------------------
-
-    #sectionWeight(i) {
-        const s = this.book.sections[i]
-        return this.isFixed(i) ? null : Math.max(1, s.size ?? 1)
-    }
-
-    // Pages per byte measured so far, used to estimate sections not yet counted.
-    #estimate() {
-        let bytes = 0, pages = 0
-        this.#counts.forEach((c, i) => {
-            if (c != null && !this.isFixed(i)) { bytes += this.#sectionWeight(i); pages += c }
-        })
-        const ratio = pages && bytes ? pages / bytes : 1 / 2200
-        return this.book.sections.map((s, i) => this.#counts[i] ?? (this.isFixed(i) ? 1 : Math.max(1, Math.round(this.#sectionWeight(i) * ratio))))
-    }
-
-    #sectionAtFraction(fraction) {
-        const est = this.#estimate()
-        const total = est.reduce((a, b) => a + b, 0)
-        let target = fraction * total, acc = 0
-        for (let i = 0; i < est.length; i++) {
-            if (acc + est[i] > target || i === est.length - 1) {
-                return { index: i, within: Math.max(0, Math.min(0.999, (target - acc) / est[i])) }
-            }
-            acc += est[i]
-        }
-        return { index: 0, within: 0 }
-    }
-
-    progress() {
-        const d = this.#display
-        if (!d) return null
-        const est = this.#estimate()
-        const total = est.reduce((a, b) => a + b, 0)
-        const before = est.slice(0, d.index).reduce((a, b) => a + b, 0)
-        const n = d.type === 'flow' ? d.dims.n : d.indices.length
-        const first = before + (d.type === 'flow' ? this.view * n : 0) + 1
-        const lastPage = d.type === 'flow' ? Math.min(before + d.pages, first + n - 1) : before + d.indices.length
-        return {
-            index: d.index,
-            indices: d.indices ?? [d.index],
-            view: this.view,
-            views: d.views,
-            page: first,
-            pageEnd: lastPage,
-            total,
-            exact: this.#counts.every(c => c != null),
-            fraction: total > 1 ? (first - 1) / (total - 1) : 0,
-            sectionPagesLeft: d.type === 'flow' ? (d.views - 1 - this.view) : 0,
-            atEnd: this.#nextIndex(d.type === 'fixed' ? Math.max(...d.indices) : d.index) == null
-                && (d.type !== 'flow' || this.view >= d.views - 1),
-        }
-    }
-
-    /** A location that survives re-layout and is stored with the book. */
-    getLocation() {
-        const d = this.#display
-        if (!d) return null
-        const p = this.progress()
-        const loc = { index: d.index, fraction: p.fraction }
-        if (d.type === 'flow') {
-            loc.sectionFraction = d.views > 1 ? this.view / d.views : 0
-            const pos = this.#firstVisible()
-            if (pos) {
-                loc.path = nodePath(d.doc.body, pos.node)
-                loc.offset = pos.offset
-            }
-            // PDF: remember the original page number too, so the location survives a layout mode change.
-            if (this.book.pdf) {
-                const anchors = [...d.doc.querySelectorAll('span[id^="pdf-p"]')]
-                let page = this.book.sections[d.index].pages?.[0]
-                for (const a of anchors) {
-                    const v = this.#viewOfRect(d, a.getClientRects())
-                    if (v != null && v <= this.view) page = Number(a.id.slice(5))
-                    else if (v != null && v > this.view) break
-                }
-                loc.pdfPage = page
-            }
-        } else if (this.book.pdf) {
-            loc.pdfPage = this.book.sections[d.index].pdfPage
-        }
-        return loc
-    }
-
-    /** Size (pt) of the current section's main text before any text size setting. */
-    baseTextSize() {
-        const d = this.#display
-        return d?.type === 'flow' ? d.doc.brBaseTextSize ?? null : null
-    }
-
-    /** View number (in the current section) where an anchor lives; used for the TOC highlight. */
-    async viewOf(anchor) {
-        const d = this.#display
-        if (d?.type !== 'flow') return 0
-        return this.#viewOfAnchor(d, anchor)
+        const frame = doc.defaultView.frameElement
+        const r = frame.getBoundingClientRect(), sr = this.#stage.getBoundingClientRect()
+        const scale = r.width / frame.offsetWidth
+        this.dispatchEvent(new CustomEvent('tap', {
+            detail: { x: r.left - sr.left + e.clientX * scale, y: r.top - sr.top + e.clientY * scale, width: sr.width, height: sr.height },
+        }))
     }
 
     // --- relayout -----------------------------------------------------------------------------
 
     async relayout() {
-        const d = this.#display
-        const dims = this.#computeDims()
-        this.#dims = dims
-        this.#counts = new Array(this.book.sections.length).fill(null)
-        this.#counterGen++
-        if (!d) return
-        if (d.type === 'flow') {
-            const pos = this.#firstVisible()
-            const path = pos ? nodePath(d.doc.body, pos.node) : null
-            const offset = pos?.offset
-            const fraction = d.views > 1 ? this.view / d.views : 0
-            const token = ++this.#token
-            d.iframe.style.width = `${dims.W}px`
-            d.iframe.style.height = `${dims.H}px`
-            const { pages, views } = await layoutFlow(d.doc, dims, this.#settings, this.book)
-            if (token !== this.#token) return
-            d.iframe.style.width = `${views * dims.W}px`
-            Object.assign(d, { pages, views, dims })
-            this.#textNodes = null
-            this.#counts[d.index] = pages
-            const view = path ? this.#viewOfPath(d, path, offset) : Math.floor(fraction * views)
-            this.#setView(view)
-        } else {
-            // Fixed pages are re-rendered at the new size (new dims → #show rebuilds them,
-            // and the two-page grouping may change too).
-            await this.#navigate({ index: d.index })
+        await this.#ready
+        if (!this.#blocks.length) return
+        const gen = ++this.#gen
+        this.#measureGen++
+        // Where we are, as text, so the same words are at the top after the new layout.
+        const loc = this.getLocation()
+        this.#dims = this.#computeDims()
+        for (const b of this.#blocks) {
+            b.measured = false
+            b.markers = null
+            if (b.live?.fixed || b.loading) this.#unload(b)
         }
-        this.#scheduleCount()
+        for (const b of this.#blocks) {
+            if (!b.live) continue
+            const h = await layoutFlow(b.live.doc, this.#dims, this.#settings)
+            if (gen !== this.#gen) return
+            b.live.iframe.style.width = `${this.#dims.W}px`
+            b.live.textNodes = null
+            this.#setMeasured(b, h, this.#findMarkers(b, b.live.doc))
+        }
+        this.#tops = null
+        this.#pages = null
+        this.#estimateAll()
+        if (loc) await this.goTo(loc)
     }
 
-    // --- background page counting --------------------------------------------------------------
+    // --- background measuring ------------------------------------------------------------------
 
-    #scheduleCount() {
-        clearTimeout(this.#counterTimer)
-        this.#counterTimer = setTimeout(() => this.#count(), 700)
+    #scheduleMeasure() {
+        clearTimeout(this.#measureTimer)
+        this.#measureTimer = setTimeout(() => this.#measureAll(), 400)
     }
 
-    async #count() {
-        const gen = ++this.#counterGen
+    async #measureAll() {
+        const gen = ++this.#measureGen
         const dims = this.#dims
-        let host = this.countHost
+        let host = this.measureHost
         if (!host) {
-            host = this.countHost = document.createElement('div')
+            host = this.measureHost = document.createElement('div')
             host.style.cssText = 'position:fixed;left:-200000px;top:0;visibility:hidden;pointer-events:none;overflow:hidden'
             document.body.append(host)
         }
         host.style.width = `${dims.W}px`
-        host.style.height = `${dims.H}px`
+        host.style.height = `${dims.sh}px`
+        // Nearest blocks first, so the part of the book you are in settles soonest.
+        const here = this.#blockIndexAt(this.#scroller.scrollTop + 1)
+        const order = this.#blocks.map((b, bi) => [b, Math.abs(bi - here)]).sort((a, b) => a[1] - b[1]).map(x => x[0])
         let lastEmit = performance.now()
-        for (let i = 0; i < this.book.sections.length; i++) {
-            if (gen !== this.#counterGen) return
-            if (this.#counts[i] != null) continue
-            if (this.isFixed(i)) { this.#counts[i] = 1; continue }
+        for (const b of order) {
+            if (gen !== this.#measureGen) return
+            if (b.measured || b.live || this.#isFixed(b)) continue
             await idle()
-            if (gen !== this.#counterGen) return
-            const section = this.book.sections[i]
+            if (gen !== this.#measureGen) return
             const iframe = makeIframe()
-            iframe.style.cssText = `width:${dims.W}px;height:${dims.H}px;border:0`
+            iframe.style.cssText = `width:${dims.W}px;height:${dims.sh}px;border:0`
             host.replaceChildren(iframe)
             try {
-                const url = await section.load()
-                await loadIframe(iframe, url)
-                if (gen !== this.#counterGen) return
-                const { pages } = await layoutFlow(iframe.contentDocument, dims, this.#settings, this.book)
-                if (gen !== this.#counterGen) return
-                this.#counts[i] = pages
+                await loadIframe(iframe, await this.book.sections[b.i].load())
+                if (gen !== this.#measureGen) return
+                const doc = iframe.contentDocument
+                const h = await layoutFlow(doc, dims, this.#settings)
+                if (gen !== this.#measureGen) return
+                if (!b.measured) this.#setMeasured(b, h, this.#findMarkers(b, doc))
             } catch (e) {
-                console.warn('Could not count pages of section', i, e)
-                this.#counts[i] = 1
+                console.warn('Could not measure section', b.i, e)
+                b.measured = true
             }
             if (performance.now() - lastEmit > 400) {
                 lastEmit = performance.now()
+                this.#estimateAll()
                 this.dispatchEvent(new CustomEvent('relocate', { detail: this.progress() }))
             }
         }
         host.replaceChildren()
+        this.#estimateAll()
         this.dispatchEvent(new CustomEvent('relocate', { detail: this.progress() }))
     }
 
     destroy() {
-        this.#counterGen++
-        this.#token++
-        clearTimeout(this.#counterTimer)
+        this.#gen++
+        this.#measureGen++
+        this.#navToken++
+        clearTimeout(this.#measureTimer)
+        clearTimeout(this.#resizeTimer)
         this.resizeObserver.disconnect()
-        this.#display?.destroy()
-        this.#display = null
-        this.countHost?.remove()
-        this.#stage.querySelectorAll('.page-layer').forEach(el => el.remove())
+        for (const b of this.#blocks) b.live?.ro?.disconnect()
+        this.#scroller.remove()
+        this.measureHost?.remove()
     }
 }

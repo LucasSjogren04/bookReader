@@ -95,7 +95,11 @@
   <footer class="rbar bottom">
     <button id="btn-prev" class="icon-btn" title="Previous page"><svg><use href="#i-back"/></svg></button>
     <span id="page-label" class="page-num now"></span>
-    <input id="progress" type="range" min="0" max="1000" value="0" aria-label="Position in book">
+    <div class="scrub">
+      <input id="progress" type="range" min="0" max="1" step="1" value="0" aria-label="Page">
+      <i id="return-tick" class="return-tick" hidden></i>
+      <button id="return-chip" class="return-chip" hidden><svg><use href="#i-back"/></svg><span id="return-label"></span><span class="dismiss" title="Forget this spot">×</span></button>
+    </div>
     <span id="page-total" class="page-num total" title="Pages in the book"></span>
     <button id="btn-next" class="icon-btn" title="Next page"><svg><use href="#i-next"/></svg></button>
   </footer>
@@ -170,18 +174,6 @@
         <datalist id="margin-stops"><option value="0"></option><option value="1"></option><option value="2"></option><option value="3"></option></datalist>
         <div class="stops"><span>None</span><span>Narrow</span><span>Medium</span><span>Wide</span></div>
       </div>
-      <div class="field">
-        <label for="s-mv">Top and bottom margins <output data-for="marginV"></output></label>
-        <input id="s-mv" type="range" min="0" max="120" step="4" data-setting="marginV">
-      </div>
-      <div class="field">
-        <label>Pages per screen</label>
-        <div class="seg" data-setting="spread">
-          <button data-value="auto">Automatic</button>
-          <button data-value="single">One</button>
-          <button data-value="double">Two</button>
-        </div>
-      </div>
       <div class="field" data-only="pdf">
         <label>PDF layout</label>
         <div class="seg" data-setting="pdfMode">
@@ -201,7 +193,6 @@
       <div class="field checks">
         <label>Other</label>
         <label class="check"><input type="checkbox" data-setting="hyphenate"> Hyphenation</label>
-        <label class="check"><input type="checkbox" data-setting="animate"> Page turn animation</label>
       </div>
       <button id="btn-reset" class="btn small">Reset to defaults</button>
     </div>

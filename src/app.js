@@ -22,6 +22,9 @@ const els = {
     progress: $('#progress'),
     pageLabel: $('#page-label'),
     pageTotal: $('#page-total'),
+    returnChip: $('#return-chip'),
+    returnLabel: $('#return-label'),
+    returnTick: $('#return-tick'),
     toc: $('#toc'),
     tocPanel: $('#toc-panel'),
     settingsPanel: $('#settings-panel'),
@@ -298,7 +301,7 @@ const openReader = async (id, { push = true } = {}) => {
         return
     }
     const token = Symbol()
-    reader = { id, meta, book, token, tocItems: [] }
+    reader = { id, meta, book, token, tocItems: [], returnTo: meta.returnTo ?? null, returnAway: true }
     $$('[data-only="pdf"]').forEach(el => el.hidden = !book.pdf)
     const paginator = new Paginator(els.stage, book, settings)
     reader.paginator = paginator
@@ -311,7 +314,7 @@ const openReader = async (id, { push = true } = {}) => {
         const r = book.resolveHref(`page:${loc.pdfPage}`)
         start = r ? { index: r.index, anchor: r.anchor } : { index: 0 }
     } else if (loc && loc.index < book.sections.length) {
-        start = { index: loc.index, path: loc.path, offset: loc.offset, fraction: loc.sectionFraction }
+        start = { index: loc.index, path: loc.path, offset: loc.offset, dy: loc.dy, sectionFraction: loc.sectionFraction }
     } else {
         start = { index: Math.max(0, book.sections.findIndex(s => s.linear !== 'no')) }
     }
@@ -330,6 +333,7 @@ const closeReader = ({ push = true } = {}) => {
     }
     closePanels()
     hideNote()
+    els.returnChip.hidden = els.returnTick.hidden = true
     els.readerView.hidden = true
     els.libraryView.hidden = false
     els.readerView.classList.remove('immersive')
@@ -352,54 +356,104 @@ const saveNow = () => {
     if (!loc) return
     if (reader.book.pdf) loc.pdfMode = reader.book.pdfMode
     const p = reader.paginator.progress()
-    db.updateBook(reader.id, { location: loc, progress: p?.atEnd ? 1 : loc.fraction, lastOpened: Date.now() })
+    db.updateBook(reader.id, {
+        location: loc, progress: p?.atEnd ? 1 : loc.fraction, lastOpened: Date.now(), returnTo: reader.returnTo,
+    })
 }
 const saveProgress = debounce(saveNow, 800)
 window.addEventListener('pagehide', saveNow)
 document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow() })
 
+// The scroller shows the page map: one step per page, the current page on the left and the last
+// on the right. It only ever reflects the scroll position, except while you are dragging it.
 const updateProgressUI = p => {
     if (!p) return
-    const range = p.pageEnd > p.page ? `${p.page}–${p.pageEnd}` : `${p.page}`
-    els.pageTotal.textContent = `${p.exact ? '' : '~'}${p.total}`
-    els.pageLabel.title = p.sectionPagesLeft ? `${p.sectionPagesLeft} more screen${p.sectionPagesLeft > 1 ? 's' : ''} in this chapter` : ''
-    if (sliderActive) return
-    els.pageLabel.textContent = range
-    els.progress.value = Math.round(p.fraction * 1000)
-    fillProgress()
+    els.pageTotal.textContent = `${p.exact ? '' : '~'}${p.original ? p.lastLabel || p.pages : p.pages}`
+    els.pageLabel.title = `${Math.round(p.pageOffset / p.pageHeight * 100)}% into this page`
+    if (!sliderActive) {
+        els.pageLabel.textContent = p.label || '–'
+        els.progress.max = Math.max(1, p.pages - 1)
+        els.progress.value = p.page
+        fillProgress()
+    }
+    updateReturnUI(p)
 }
 
 // The part of the track before the thumb is drawn darker, as a reading-progress line.
-const fillProgress = () => els.progress.style.setProperty('--fill', `${els.progress.value / 10}%`)
+const fillProgress = () => els.progress.style.setProperty('--fill', `${els.progress.value / (els.progress.max || 1) * 100}%`)
 
 let sliderActive = false
 els.progress.addEventListener('input', () => {
+    if (!reader) return
+    // The first move remembers exactly where you were, so you can find your way back.
+    if (!sliderActive) rememberReturn()
     sliderActive = true
     fillProgress()
-    if (!reader) return
-    const p = reader.paginator.progress()
-    if (p) els.pageLabel.textContent = `~${Math.max(1, Math.round(els.progress.value / 1000 * p.total))}`
+    els.pageLabel.textContent = reader.paginator.pageLabel(Number(els.progress.value)) || '–'
     els.pageLabel.classList.add('seeking')
 })
 els.progress.addEventListener('change', async () => {
-    sliderActive = false
+    if (!reader) return
     els.pageLabel.classList.remove('seeking')
-    if (reader) await reader.paginator.goToFraction(els.progress.value / 1000)
+    // Lands on the top of the chosen page.
+    await reader.paginator.goToPage(Number(els.progress.value))
+    sliderActive = false
+    if (reader) updateProgressUI(reader.paginator.progress())
+})
+
+// --- back to where you left off ------------------------------------------------------------
+// The first jump away (scroller, contents, a link, Home/End) remembers the exact spot you were
+// reading. A marker on the scroller and a "Back to page" button lead back to it until you use
+// them, dismiss them, or scroll back to that page yourself. Later jumps keep the first spot.
+
+const rememberReturn = () => {
+    if (!reader || reader.returnTo) return
+    reader.returnTo = reader.paginator.getLocation()
+    reader.returnAway = false
+    saveProgress()
+}
+
+const clearReturn = () => {
+    if (!reader) return
+    reader.returnTo = null
+    els.returnChip.hidden = els.returnTick.hidden = true
+    saveProgress()
+}
+
+const updateReturnUI = p => {
+    const at = reader?.returnTo ? reader.paginator.locate(reader.returnTo) : null
+    if (!at) { els.returnChip.hidden = els.returnTick.hidden = true; return }
+    if (at.page !== p.page) reader.returnAway = true
+    else if (reader.returnAway && !sliderActive) { clearReturn(); return }
+    els.returnTick.hidden = false
+    els.returnTick.style.left = `calc(4px + (100% - 8px) * ${at.fraction})`
+    els.returnLabel.textContent = `Back to page ${at.label || '–'}`
+    els.returnChip.hidden = !reader.returnAway
+    if (els.returnChip.hidden) return
+    // Centred over the marker, but kept inside the scroller's width.
+    const w = els.returnChip.parentElement.clientWidth, cw = els.returnChip.offsetWidth
+    const x = 4 + (w - 8) * at.fraction
+    els.returnChip.style.left = `${Math.max(0, Math.min(w - cw, x - cw / 2))}px`
+}
+
+els.returnChip.addEventListener('click', async e => {
+    if (!reader?.returnTo) return
+    if (e.target.closest('.dismiss')) { clearReturn(); return }
+    const loc = reader.returnTo
+    clearReturn()
+    await reader.paginator.goTo(loc)
 })
 
 // --- paginator events -----------------------------------------------------------------------
 
 let loadingTimer
 const bindPaginator = paginator => {
-    let shownPage = null
     paginator.addEventListener('relocate', e => {
         updateProgressUI(e.detail)
         updateCurrentChapter()
         saveProgress()
-        // This also fires as background page counting progresses, so check the page really changed.
-        const page = `${paginator.display?.index}:${paginator.view}`
-        if (page !== shownPage) hideNote()
-        shownPage = page
+        // A note stays open until the text under it has really moved.
+        if (!els.notePopup.hidden && noteRefMoved()) hideNote()
     })
     paginator.addEventListener('loading', e => {
         clearTimeout(loadingTimer)
@@ -410,13 +464,10 @@ const bindPaginator = paginator => {
     paginator.addEventListener('tap', e => onTap(e.detail))
     paginator.addEventListener('link', e => onLink(e.detail))
     paginator.addEventListener('doc-keydown', e => onKeydown(e.detail))
-    paginator.addEventListener('doc-wheel', e => onWheel(e.detail))
-    paginator.addEventListener('doc-touchstart', e => onTouchStart(e.detail))
-    paginator.addEventListener('doc-touchend', e => onTouchEnd(e.detail))
 }
 
-// Clicking the page never turns it (so clicking to select text or look words up is safe);
-// it only dismisses an open footnote or an overlay panel.
+// Clicking the page only dismisses an open footnote or an overlay panel, so clicking to select
+// text or look words up is always safe.
 const onTap = () => {
     if (!els.notePopup.hidden) { hideNote(); return }
     if (panelsOverlay() && (!els.tocPanel.hidden || !els.settingsPanel.hidden)) closePanels()
@@ -457,6 +508,14 @@ const sanitize = (node) => {
 }
 
 const hideNote = () => { els.notePopup.hidden = true }
+// The open note's reference and where it was on screen. The scroll position alone can't tell
+// whether the text moved (measuring the book shifts it while the text stays put).
+let noteRef = null
+const refTop = ({ a, doc }) => (doc.defaultView?.frameElement?.getBoundingClientRect().top ?? 0) + a.getBoundingClientRect().top
+const noteRefMoved = () => {
+    if (!noteRef?.a.isConnected) return true
+    return Math.abs(refTop(noteRef) - noteRef.top) > 40
+}
 
 // Some targets (every note in a MOBI) are empty markers: the note is what follows, up to the next
 // marker or the end of its paragraph. Returns null if the book has no text there.
@@ -495,20 +554,15 @@ const showNote = (target, a, doc) => {
         body.textContent = "This book's file doesn't include the text of this note."
     }
     els.notePopup.hidden = false
+    noteRef = { a, doc }
+    noteRef.top = refTop(noteRef)
     // Position near the reference.
-    const d = reader.paginator.display
-    const sr = els.stage.getBoundingClientRect()
     const r = a.getBoundingClientRect()
-    let x, y
-    if (d?.type === 'flow' && d.doc === doc) {
-        x = sr.left + r.left - reader.paginator.view * d.dims.W
-        y = sr.top + r.bottom
-    } else {
-        const fr = doc.defaultView.frameElement.getBoundingClientRect()
-        const scale = fr.width / doc.defaultView.frameElement.offsetWidth
-        x = fr.left + r.left * scale
-        y = fr.top + r.bottom * scale
-    }
+    const frame = doc.defaultView.frameElement
+    const fr = frame.getBoundingClientRect()
+    const scale = fr.width / frame.offsetWidth
+    const x = fr.left + r.left * scale
+    const y = fr.top + r.bottom * scale
     const pw = els.notePopup.offsetWidth, ph = els.notePopup.offsetHeight
     const left = Math.max(12, Math.min(innerWidth - pw - 12, x - pw / 2))
     const top = y + ph + 16 > innerHeight ? Math.max(12, y - ph - 30) : y + 8
@@ -543,6 +597,7 @@ const onLink = async ({ a, doc, index }) => {
             }
         }
     } catch (e) { console.warn(e) }
+    rememberReturn()
     paginator.goTo({ index: resolved.index, anchor: resolved.anchor })
 }
 
@@ -562,6 +617,7 @@ const renderTOC = book => {
                 e.preventDefault()
                 if (!item.href) return
                 // Contents stays open so you can keep jumping between chapters.
+                rememberReturn()
                 await reader?.paginator.goToHref(item.href)
             })
             item.el = a
@@ -592,19 +648,15 @@ const resolveTOC = async book => {
     if (reader === myReader) { reader.tocItems = flat.filter(i => i.index != null); updateCurrentChapter() }
 }
 
-const updateCurrentChapter = debounce(async () => {
+// The chapter whose heading is the last one above the top of the screen.
+const updateCurrentChapter = debounce(() => {
     if (!reader) return
     const { paginator, tocItems } = reader
-    const p = paginator.progress()
-    if (!p) return
-    let current = null
+    const y = paginator.scrollY + 2
+    let current = null, best = -Infinity
     for (const item of tocItems) {
-        if (item.index < p.index) current = item
-        else if (item.index === p.index) {
-            if (!item.anchor) { current = item; continue }
-            const v = await paginator.viewOf(item.anchor)
-            if (v <= p.view) current = item
-        }
+        const iy = paginator.positionOf(item.index, item.anchor)
+        if (iy != null && iy <= y && iy >= best) { current = item; best = iy }
     }
     for (const item of tocItems) item.el?.classList.toggle('current', item === current)
     els.chapterTitle.textContent = current?.label?.trim() ?? ''
@@ -616,8 +668,8 @@ const closePanels = () => {
     els.tocPanel.hidden = true
     els.settingsPanel.hidden = true
 }
-// Wide windows: both panels can stay pinned beside the book (the pages re-split to the
-// remaining width). Narrow windows: they are overlays and only one is open at a time.
+// Wide windows: both panels can stay open over the edges of the book. Narrow windows: only
+// one is open at a time.
 const panelsOverlay = () => matchMedia('(max-width: 1000px)').matches
 const togglePanel = panel => {
     const open = panel.hidden
@@ -629,6 +681,7 @@ $$('[data-close]').forEach(b => b.addEventListener('click', () => { b.closest('.
 $('#btn-library').addEventListener('click', () => closeReader())
 $('#btn-toc').addEventListener('click', () => togglePanel(els.tocPanel))
 $('#btn-settings').addEventListener('click', () => togglePanel(els.settingsPanel))
+// The arrows beside the scroller step to the top of the previous/next page.
 $('#btn-prev').addEventListener('click', () => reader?.paginator.prev())
 $('#btn-next').addEventListener('click', () => reader?.paginator.next())
 const toggleFullscreen = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()
@@ -641,12 +694,15 @@ const onKeydown = e => {
     if (e.target?.closest?.('input, select, textarea')) return
     if (e.ctrlKey || e.metaKey || e.altKey) return
     const p = reader.paginator
+    // Keys scroll the text smoothly; nothing ever flips a page.
     switch (e.key) {
-        case 'ArrowRight': case 'PageDown': case 'ArrowDown': p.next(); break
-        case 'ArrowLeft': case 'PageUp': case 'ArrowUp': p.prev(); break
-        case ' ': e.shiftKey ? p.prev() : p.next(); break
-        case 'Home': p.goTo({ index: 0 }); break
-        case 'End': p.goTo({ index: reader.book.sections.length - 1, end: true }); break
+        case 'ArrowDown': p.scrollLines(1); break
+        case 'ArrowUp': p.scrollLines(-1); break
+        case 'PageDown': p.scrollScreens(1); break
+        case 'PageUp': p.scrollScreens(-1); break
+        case ' ': p.scrollScreens(e.shiftKey ? -1 : 1); break
+        case 'Home': rememberReturn(); p.goTo({ index: 0 }); break
+        case 'End': rememberReturn(); p.goTo({ end: true }); break
         case 'Escape':
             if (!els.notePopup.hidden) hideNote()
             else if (!els.tocPanel.hidden || !els.settingsPanel.hidden) closePanels()
@@ -662,48 +718,13 @@ const onKeydown = e => {
 }
 document.addEventListener('keydown', onKeydown)
 
-let wheelAcc = 0, wheelLock = 0
-const onWheel = e => {
-    if (!reader || e.ctrlKey) return
-    if (e.target?.closest?.('.drawer, .note-popup')) return
-    e.preventDefault?.()
-    const now = performance.now()
-    if (now < wheelLock) return
-    wheelAcc += Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX
-    if (Math.abs(wheelAcc) > 40) {
-        wheelAcc > 0 ? reader.paginator.next() : reader.paginator.prev()
-        wheelAcc = 0
-        wheelLock = now + 220
-    }
-}
-els.stage.addEventListener('wheel', onWheel, { passive: false })
-
-let touch = null
-const onTouchStart = e => {
-    const t = e.changedTouches[0]
-    touch = { x: t.screenX, y: t.screenY, time: Date.now() }
-}
-const onTouchEnd = e => {
-    if (!touch || !reader) return
-    const t = e.changedTouches[0]
-    const dx = t.screenX - touch.x, dy = t.screenY - touch.y
-    // Pages turn vertically, so swiping up goes forward (sideways swipes still work too).
-    const quick = Date.now() - touch.time < 800
-    if (quick && Math.abs(dy) > 50 && Math.abs(dy) > Math.abs(dx) * 1.5)
-        dy < 0 ? reader.paginator.next() : reader.paginator.prev()
-    else if (quick && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5)
-        dx < 0 ? reader.paginator.next() : reader.paginator.prev()
-    touch = null
-}
-els.stage.addEventListener('touchstart', onTouchStart, { passive: true })
-els.stage.addEventListener('touchend', onTouchEnd, { passive: true })
+// The mouse wheel and touch scroll the book natively.
 
 // --- settings panel ---------------------------------------------------------------------------
 
 const formatSetting = (key, value) => {
     if (key === 'lineHeight') return Number(value) ? Number(value).toFixed(1) : 'Original'
     if (key === 'marginSize') return MARGIN_SIZES[value]?.name ?? ''
-    if (key === 'marginV') return `${value}px`
     return String(value)
 }
 

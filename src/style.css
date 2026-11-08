@@ -282,8 +282,9 @@ input[type="range"], input[type="checkbox"] { accent-color: var(--progressive); 
 .page-num.now { text-align: right; }
 .page-num.now.seeking { color: var(--progressive); }
 .page-num.total { text-align: left; }
+.scrub { flex: 1; min-width: 60px; position: relative; display: flex; align-items: center; }
 #progress {
-    --fill: 0%; flex: 1; min-width: 60px; height: 20px; margin: 0;
+    --fill: 0%; width: 100%; height: 20px; margin: 0;
     appearance: none; -webkit-appearance: none; background: transparent; cursor: pointer;
 }
 #progress::-webkit-slider-runnable-track {
@@ -301,35 +302,41 @@ input[type="range"], input[type="checkbox"] { accent-color: var(--progressive); 
 #progress:hover::-moz-range-thumb { background: var(--progressive); }
 #progress:focus-visible { outline: none; }
 #progress:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 2px var(--page), 0 0 0 4px var(--progressive); }
+/* Where you were before jumping away: a mark on the track and a button just above it. */
+.return-tick {
+    position: absolute; top: 50%; width: 2px; height: 10px; border-radius: 1px;
+    background: var(--progressive); transform: translate(-50%, -50%); pointer-events: none;
+}
+.return-chip {
+    position: absolute; bottom: calc(100% + 6px); display: inline-flex; align-items: center; gap: 6px;
+    height: 26px; padding: 0 4px 0 8px; border: 1px solid var(--border); border-radius: 13px;
+    background: var(--page); color: var(--progressive); font: inherit; font-size: 12px; white-space: nowrap;
+    cursor: pointer; box-shadow: var(--shadow-popup);
+}
+.return-chip svg { width: 14px; height: 14px; }
+.return-chip:hover { border-color: var(--progressive); }
+.return-chip .dismiss {
+    display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%;
+    color: var(--text-subtle); font-size: 14px; line-height: 1;
+}
+.return-chip .dismiss:hover { background: var(--border-muted); color: var(--text); }
 #reader-view.immersive .rbar { opacity: 0; pointer-events: none; }
 #reader-view.immersive .rbar:hover { opacity: 1; pointer-events: auto; }
 
 .stage { grid-area: main; position: relative; overflow: hidden; user-select: text; }
-.stage .page-layer { position: absolute; inset: 0; overflow: hidden; }
-.stage iframe { position: absolute; top: 0; left: 0; border: 0; transform-origin: 0 0; background: transparent; }
-/* Vertical page turns (see Paginator#turn): only the page area moves; the rest of the
-   screen just switches. */
-.stage { view-transition-name: page; }
-::view-transition-old(root), ::view-transition-new(root) { animation: none; }
-::view-transition-group(page) { overflow: clip; animation-duration: .3s; }
-::view-transition-old(page), ::view-transition-new(page) {
-    height: 100%; animation: .3s cubic-bezier(.3, .7, .3, 1) both;
+/* The whole book is one continuous strip (see Paginator); its scrollbar is hidden because the
+   page scroller below is the way to move around the book. */
+.stage .scroller {
+    position: absolute; inset: 0; overflow: hidden auto; overscroll-behavior: contain;
+    scrollbar-width: none; outline: none;
 }
-::view-transition-old(page) { animation-name: page-out-up; }
-::view-transition-new(page) { animation-name: page-in-up; }
-:root[data-turn="prev"]::view-transition-old(page) { animation-name: page-out-down; }
-:root[data-turn="prev"]::view-transition-new(page) { animation-name: page-in-down; }
-@keyframes page-out-up { to { transform: translateY(-100%); } }
-@keyframes page-in-up { from { transform: translateY(100%); } }
-@keyframes page-out-down { to { transform: translateY(100%); } }
-@keyframes page-in-down { from { transform: translateY(-100%); } }
-.stage .fixed-wrap { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
-.stage .fixed-page { position: relative; flex: none; box-shadow: 0 0 0 1px var(--border-subtle); background: #fff; overflow: hidden; }
+.stage .block { position: relative; }
+.stage .block > iframe { display: block; border: 0; background: transparent; }
+.stage .fixed-wrap { display: flex; justify-content: center; }
+.stage .fixed-page { position: relative; flex: none; background: #fff; overflow: hidden; }
 .stage .fixed-page canvas { display: block; }
-.stage .fixed-page iframe { position: absolute; transform-origin: 0 0; background: #fff; }
+.stage .fixed-page iframe { position: absolute; top: 0; left: 0; border: 0; transform-origin: 0 0; background: #fff; }
 .stage .fixed-page.inverted { filter: invert(.92) hue-rotate(180deg); }
-.stage .fade-in { animation: fade .18s ease; }
-@keyframes fade { from { opacity: 0; } }
 .loading {
     position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; gap: 14px;
     align-items: center; justify-content: center; color: var(--text-subtle); font-size: 14px; background: var(--page);
@@ -344,12 +351,8 @@ input[type="range"], input[type="checkbox"] { accent-color: var(--progressive); 
     display: flex; flex-direction: column; min-height: 0; padding: 12px 16px 0;
     background: var(--page); color: var(--text); box-shadow: var(--shadow-popup);
 }
-.drawer.left { left: 0; view-transition-name: menu-left; }
-.drawer.right { right: 0; view-transition-name: menu-right; }
-/* Named so the sliding page passes behind an open menu instead of over it. */
-::view-transition-old(menu-left), ::view-transition-new(menu-left),
-::view-transition-old(menu-right), ::view-transition-new(menu-right) { animation: none; }
-::view-transition-old(menu-left), ::view-transition-old(menu-right) { display: none; }
+.drawer.left { left: 0; }
+.drawer.right { right: 0; }
 .drawer-head {
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
     padding-bottom: 6px; margin-bottom: 6px; border-bottom: 1px solid var(--border-muted);

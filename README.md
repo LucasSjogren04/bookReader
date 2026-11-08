@@ -33,25 +33,34 @@ extension have to be added again there.
 EPUB, KEPUB, AZW3/KF8, MOBI, AZW, PRC, PDF, FB2, FBZ (FB2.ZIP), CBZ, TXT, HTML and Markdown.
 DRM-protected files and KFX can't be read (convert them with Calibre first).
 
-## How pagination works
+## How reading works
 
-* **Reflowable text** is split into pages in real time with CSS columns, sized to the window
-  (including browser zoom), font, line spacing and margins. Any change re-splits immediately and keeps your place.
-* **Figures, charts, tables, SVG, maths and image+caption groups** are never split across pages.
-  If one is a bit too big for a page it is scaled to fit; if it's far too big (a very long table)
-  it is allowed to break so it stays readable. A short section made of charts/tables and notes
-  is kept together as one page.
+* **One continuous page.** The whole book scrolls as one strip, with no page breaks on screen.
+  The mouse wheel, touch, the arrow keys and Space scroll it smoothly; nothing flips a page.
+  Only the chapters near the screen are loaded, and the rest are measured in the background.
+* **Pages live in the scroller at the bottom.** It uses the book's own page numbers when it has
+  them (an EPUB page list, a PDF's pages); otherwise each page is one screen of text and every
+  chapter starts a new page. Dragging or clicking the scroller lands on the top of a page.
+* **Back to where you were.** The first jump away (scroller, contents, a link, `Home`/`End`)
+  remembers the exact spot you were reading. A mark on the scroller and a *Back to page* button
+  take you back to it until you use or dismiss them, or scroll back to that page yourself.
+* The scroll position is the only record of where you are; the page, how far into it you are
+  and the saved location are all worked out from it. Changing the font, size or margins keeps
+  the same words at the top of the screen.
+* **Figures and tables** wider than the text column are scaled to fit it, and pictures are never
+  taller than the screen.
 * **PDFs** are analysed once when added. Pages of plain prose are reflowed (paragraphs continue
   across the original page breaks, running headers and page numbers are removed). Pages with
   pictures, charts/diagrams, tables, maths, footnotes/citations, rotated text or title layouts
   keep their **original page construction** and are shown as the real page (with selectable text).
   The *PDF layout* setting switches between Smart, Original pages and Reflow all.
-* **Fixed-layout** EPUB/KF8 and comics are shown page by page, two at a time on wide screens.
+* **Fixed-layout** EPUB/KF8 and comics show their original pages one after another.
 
 ## Keys
 
-`←/→`, `PageUp/PageDown`, `Space` turn pages · `T` contents · `A` appearance · `F` full screen ·
-`Esc` back. Use the browser's own zoom (`Ctrl`+`+`/`-`/`0`) to scale everything.
+`↑/↓` scroll a little · `Space`, `PageUp/PageDown` scroll a screen · `Home/End` start/end of the book ·
+`T` contents · `A` appearance · `F` full screen · `Esc` back. Use the browser's own zoom
+(`Ctrl`+`+`/`-`/`0`) to scale everything.
 
 ## Development
 

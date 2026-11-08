@@ -10,23 +10,16 @@ export const defaults = Object.freeze({
     lineHeight: 0,           // 0 = book's original
     align: 'original',       // original | justify | left
     marginSize: 1,           // side margins: 0 none, 1 narrow, 2 medium, 3 wide (see MARGIN_SIZES)
-    marginV: 36,
-    spread: 'single',        // auto | single | double
     pdfMode: 'smart',        // smart | original | reflow
     invertFixed: 'auto',     // auto | always | never (only used in dark themes)
     hyphenate: true,
-    animate: true,
-    version: 2,
 })
 
 const listeners = new Set()
 
 const load = () => {
     try {
-        const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}')
-        // Automatic used to be the default, so a saved one before version 2 wasn't really a choice.
-        if ((saved.version ?? 1) < 2 && saved.spread === 'auto') saved.spread = 'single'
-        return { ...defaults, ...saved, version: defaults.version }
+        return { ...defaults, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }
     } catch {
         return { ...defaults }
     }
