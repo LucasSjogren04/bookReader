@@ -21,6 +21,7 @@ const els = {
     chapterTitle: $('#chapter-title'),
     progress: $('#progress'),
     pageLabel: $('#page-label'),
+    pageTotal: $('#page-total'),
     toc: $('#toc'),
     tocPanel: $('#toc-panel'),
     settingsPanel: $('#settings-panel'),
@@ -277,7 +278,7 @@ const openReader = async (id, { push = true } = {}) => {
     els.readerView.hidden = false
     els.bookTitle.textContent = meta.title
     els.chapterTitle.textContent = ''
-    els.pageLabel.textContent = ''
+    els.pageLabel.textContent = els.pageTotal.textContent = ''
     document.title = `${meta.title} — Shelf`
     showLoading('Opening book…')
     const blob = await db.getFile(id)
@@ -360,20 +361,29 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) saveN
 const updateProgressUI = p => {
     if (!p) return
     const range = p.pageEnd > p.page ? `${p.page}–${p.pageEnd}` : `${p.page}`
-    els.pageLabel.textContent = `${range} of ${p.exact ? '' : '~'}${p.total}`
+    els.pageTotal.textContent = `${p.exact ? '' : '~'}${p.total}`
     els.pageLabel.title = p.sectionPagesLeft ? `${p.sectionPagesLeft} more screen${p.sectionPagesLeft > 1 ? 's' : ''} in this chapter` : ''
-    if (!sliderActive) els.progress.value = Math.round(p.fraction * 1000)
+    if (sliderActive) return
+    els.pageLabel.textContent = range
+    els.progress.value = Math.round(p.fraction * 1000)
+    fillProgress()
 }
+
+// The part of the track before the thumb is drawn darker, as a reading-progress line.
+const fillProgress = () => els.progress.style.setProperty('--fill', `${els.progress.value / 10}%`)
 
 let sliderActive = false
 els.progress.addEventListener('input', () => {
     sliderActive = true
+    fillProgress()
     if (!reader) return
     const p = reader.paginator.progress()
-    if (p) els.pageLabel.textContent = `Go to ~${Math.max(1, Math.round(els.progress.value / 1000 * p.total))} of ${p.total}`
+    if (p) els.pageLabel.textContent = `~${Math.max(1, Math.round(els.progress.value / 1000 * p.total))}`
+    els.pageLabel.classList.add('seeking')
 })
 els.progress.addEventListener('change', async () => {
     sliderActive = false
+    els.pageLabel.classList.remove('seeking')
     if (reader) await reader.paginator.goToFraction(els.progress.value / 1000)
 })
 

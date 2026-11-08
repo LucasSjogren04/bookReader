@@ -277,8 +277,30 @@ input[type="range"], input[type="checkbox"] { accent-color: var(--progressive); 
 .rtitle { flex: 1; min-width: 0; padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #book-title { font-family: var(--font-heading); font-size: 20px; color: var(--text); }
 #chapter-title { font-size: 14px; color: var(--text-subtle); margin-left: 12px; }
-#progress { flex: 1; min-width: 60px; }
-.page-label { font-size: 13px; color: var(--text-subtle); min-width: 150px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Page scroller: a thin line with the current page on its left and the total on its right. */
+.page-num { font-size: 12px; color: var(--text-subtle); min-width: 64px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.page-num.now { text-align: right; }
+.page-num.now.seeking { color: var(--progressive); }
+.page-num.total { text-align: left; }
+#progress {
+    --fill: 0%; flex: 1; min-width: 60px; height: 20px; margin: 0;
+    appearance: none; -webkit-appearance: none; background: transparent; cursor: pointer;
+}
+#progress::-webkit-slider-runnable-track {
+    height: 2px; border-radius: 1px;
+    background: linear-gradient(to right, var(--text-subtle) var(--fill), var(--border-muted) var(--fill));
+}
+#progress::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 8px; height: 8px; margin-top: -3px; border: none; border-radius: 50%;
+    background: var(--text-subtle); transition: transform .15s, background-color .15s;
+}
+#progress:hover::-webkit-slider-thumb, #progress:active::-webkit-slider-thumb { transform: scale(1.6); background: var(--progressive); }
+#progress::-moz-range-track { height: 2px; border-radius: 1px; background: var(--border-muted); }
+#progress::-moz-range-progress { height: 2px; border-radius: 1px; background: var(--text-subtle); }
+#progress::-moz-range-thumb { width: 8px; height: 8px; border: none; border-radius: 50%; background: var(--text-subtle); }
+#progress:hover::-moz-range-thumb { background: var(--progressive); }
+#progress:focus-visible { outline: none; }
+#progress:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 2px var(--page), 0 0 0 4px var(--progressive); }
 #reader-view.immersive .rbar { opacity: 0; pointer-events: none; }
 #reader-view.immersive .rbar:hover { opacity: 1; pointer-events: auto; }
 
